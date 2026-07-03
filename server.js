@@ -37,7 +37,6 @@ function authMiddleware(req, res, next) {
 function pad(n) { return String(n).padStart(2, '0'); }
 
 // ── HELPERS ────────────────────────────────────────────────────
-// Calculate distance between two coordinates (km)
 function calculateDistance(lat1, lng1, lat2, lng2) {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -48,7 +47,6 @@ function calculateDistance(lat1, lng1, lat2, lng2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// Calculate fare based on distance
 async function calculateFare(distanceKm) {
     const { rows } = await pool.query('SELECT * FROM fare_settings ORDER BY id DESC LIMIT 1');
     const settings = rows[0];
@@ -64,7 +62,6 @@ async function calculateFare(distanceKm) {
 
 // ── AUTH ENDPOINTS ─────────────────────────────────────────────
 
-// Register
 app.post('/auth/register', async (req, res) => {
     try {
         const { phone, name, role, password } = req.body;
@@ -87,7 +84,6 @@ app.post('/auth/register', async (req, res) => {
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
-// Login
 app.post('/auth/login', async (req, res) => {
     try {
         const { phone, password } = req.body;
@@ -111,7 +107,6 @@ app.post('/auth/login', async (req, res) => {
 
 // ── RIDER ENDPOINTS ────────────────────────────────────────────
 
-// Update rider location
 app.post('/rider/location', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -126,7 +121,6 @@ app.post('/rider/location', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Go online/offline
 app.post('/rider/status', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -136,7 +130,6 @@ app.post('/rider/status', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Get rider's pending ride request
 app.get('/rider/current-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -151,7 +144,6 @@ app.get('/rider/current-ride', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Accept ride
 app.post('/rider/accept-ride/:rideId', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -165,7 +157,6 @@ app.post('/rider/accept-ride/:rideId', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Update ride status (arriving, in_progress, completed)
 app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -183,7 +174,6 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
         );
         if (rows.length === 0) return res.status(400).json({ error: 'Ride not found' });
 
-        // On completion, update rider earnings
         if (status === 'completed') {
             await pool.query(
                 'UPDATE users SET total_rides=total_rides+1, total_earnings=total_earnings+$1 WHERE id=$2',
@@ -195,7 +185,6 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Rider earnings summary
 app.get('/rider/earnings', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -211,17 +200,14 @@ app.get('/rider/earnings', authMiddleware, async (req, res) => {
 
 // ── PASSENGER ENDPOINTS ────────────────────────────────────────
 
-// Request a ride
 app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
         const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method } = req.body;
 
-        // Calculate distance and fare
         const distanceKm = calculateDistance(pickup_lat, pickup_lng, dest_lat, dest_lng);
         const { fare, zambikeCut, riderEarnings } = await calculateFare(distanceKm);
 
-        // Create ride
         const { rows } = await pool.query(
             `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distance_km, fare, zambike_cut,
@@ -236,7 +222,6 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
-// Get nearby riders
 app.get('/passenger/nearby-riders', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
@@ -262,7 +247,6 @@ app.get('/passenger/nearby-riders', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Get current ride status
 app.get('/passenger/current-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
@@ -280,7 +264,6 @@ app.get('/passenger/current-ride', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Cancel ride
 app.post('/passenger/cancel-ride/:rideId', authMiddleware, async (req, res) => {
     try {
         const { reason } = req.body;
@@ -295,7 +278,6 @@ app.post('/passenger/cancel-ride/:rideId', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Rate a ride
 app.post('/ride/rate/:rideId', authMiddleware, async (req, res) => {
     try {
         const { stars, comment } = req.body;
@@ -331,7 +313,6 @@ app.post('/fare-estimate', async (req, res) => {
 
 // ── ADMIN ENDPOINTS ────────────────────────────────────────────
 
-// Approve rider
 app.post('/admin/approve-rider/:userId', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
@@ -341,7 +322,6 @@ app.post('/admin/approve-rider/:userId', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Suspend user
 app.post('/admin/suspend-user/:userId', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
@@ -351,7 +331,19 @@ app.post('/admin/suspend-user/:userId', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Get all stats
+// List all riders (for approval queue)
+app.get('/admin/riders', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { rows } = await pool.query(
+            `SELECT id, phone, name, is_approved, is_online, is_active, rating, total_rides, created_at
+             FROM users WHERE role='rider' ORDER BY created_at DESC`
+        );
+        res.json({ riders: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/stats', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
@@ -373,7 +365,6 @@ app.get('/admin/stats', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Update fare settings
 app.post('/admin/fare-settings', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
