@@ -1,4 +1,4 @@
-app.use(express.static('public'));const express = require('express');
+const express = require('express');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -8,6 +8,7 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'zambike-secret-key';
 
 app.use(express.json());
+app.use(express.static('public'));
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
@@ -244,7 +245,6 @@ app.get('/passenger/nearby-riders', authMiddleware, async (req, res) => {
         const { rows } = await pool.query(
             `SELECT u.id, u.name, u.rating, u.total_rides,
              rl.latitude, rl.longitude,
-             -- Distance in km using simple formula
              (6371 * acos(cos(radians($1)) * cos(radians(rl.latitude)) *
               cos(radians(rl.longitude) - radians($2)) +
               sin(radians($1)) * sin(radians(rl.latitude)))) AS distance_km
@@ -303,7 +303,6 @@ app.post('/ride/rate/:rideId', authMiddleware, async (req, res) => {
         if (rideRows.length === 0) return res.status(404).json({ error: 'Ride not found' });
         const ride = rideRows[0];
 
-        // Determine who is being rated
         const ratedUser = req.user.role === 'passenger' ? ride.rider_id : ride.passenger_id;
 
         await pool.query(
@@ -311,7 +310,6 @@ app.post('/ride/rate/:rideId', authMiddleware, async (req, res) => {
             [ride.id, req.user.id, ratedUser, stars, comment]
         );
 
-        // Update average rating
         const { rows: avgRows } = await pool.query(
             'SELECT AVG(stars) as avg FROM ratings WHERE rated_user=$1', [ratedUser]
         );
