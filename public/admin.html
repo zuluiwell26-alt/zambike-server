@@ -192,6 +192,39 @@
   }
   .gap-note b{color:var(--orange);}
 
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{
+    text-align:left;
+    color:var(--muted);
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    padding:8px 10px;
+    border-bottom:1px solid var(--line);
+  }
+  td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  .badge{
+    display:inline-block;
+    font-size:11px;
+    font-family:'JetBrains Mono',monospace;
+    padding:3px 8px;
+    border-radius:20px;
+    border:1px solid var(--line);
+  }
+  .badge.yes{color:var(--green);border-color:rgba(61,220,132,0.35);background:rgba(61,220,132,0.06);}
+  .badge.no{color:var(--muted);}
+  .badge.off{color:var(--red);border-color:rgba(229,72,77,0.35);background:rgba(229,72,77,0.06);}
+  .mini-btn{
+    padding:5px 10px;
+    font-size:11px;
+    border-radius:6px;
+    margin-right:6px;
+  }
+  .refresh-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .refresh-row button{padding:6px 12px;font-size:12px;}
+
   footer{
     text-align:center;
     color:var(--muted);
@@ -287,9 +320,32 @@
   </section>
 
   <section>
-    <div class="gap-note">
-      <span>⚠</span>
-      <span><b>No rider list yet.</b> The backend has no <code>GET /admin/riders</code> endpoint, so this dashboard can't show which riders are pending approval — you need their user ID from the database first. Say the word and I'll add that endpoint plus a table here.</span>
+    <div class="panel">
+      <div class="refresh-row">
+        <div>
+          <h2 style="margin-bottom:0;">Riders</h2>
+          <p class="desc" style="margin-bottom:0;">Every rider that has signed up, newest first.</p>
+        </div>
+        <button class="ghost" onclick="loadRiders()">Refresh</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Approved</th>
+              <th>Active</th>
+              <th>Rides</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="ridersBody">
+            <tr><td colspan="7" style="color:var(--muted);">Connect above to load riders</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -321,10 +377,54 @@ async function connect(){
     document.getElementById('statPassengers').textContent = data.total_passengers;
     document.getElementById('statRides').textContent = data.total_rides;
     document.getElementById('statEarnings').textContent = Number(data.total_earnings).toFixed(2);
+    loadRiders();
   }catch(e){
     pill.textContent = 'unreachable';
     pill.className = 'status-pill off';
   }
+}
+
+async function loadRiders(){
+  const body = document.getElementById('ridersBody');
+  body.innerHTML = '<tr><td colspan="7" style="color:var(--muted);">Loading…</td></tr>';
+  try{
+    const res = await fetch(API + '/admin/riders', { headers: { 'x-admin-key': KEY } });
+    const data = await res.json();
+    if(!res.ok){
+      body.innerHTML = '<tr><td colspan="7" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
+      return;
+    }
+    if(!data.riders || data.riders.length === 0){
+      body.innerHTML = '<tr><td colspan="7" style="color:var(--muted);">No riders yet</td></tr>';
+      return;
+    }
+    body.innerHTML = data.riders.map(r => `
+      <tr>
+        <td>${r.id}</td>
+        <td>${r.name}</td>
+        <td>${r.phone}</td>
+        <td><span class="badge ${r.is_approved ? 'yes' : 'no'}">${r.is_approved ? 'approved' : 'pending'}</span></td>
+        <td><span class="badge ${r.is_active ? 'yes' : 'off'}">${r.is_active ? 'active' : 'suspended'}</span></td>
+        <td>${r.total_rides}</td>
+        <td>
+          ${!r.is_approved ? `<button class="mini-btn" onclick="quickApprove(${r.id})">Approve</button>` : ''}
+          ${r.is_active ? `<button class="mini-btn danger" onclick="quickSuspend(${r.id})">Suspend</button>` : ''}
+        </td>
+      </tr>
+    `).join('');
+  }catch(e){
+    body.innerHTML = '<tr><td colspan="7" style="color:var(--red);">network error</td></tr>';
+  }
+}
+
+async function quickApprove(id){
+  await fetch(API + '/admin/approve-rider/' + id, { method:'POST', headers:{ 'x-admin-key': KEY } });
+  loadRiders();
+}
+
+async function quickSuspend(id){
+  await fetch(API + '/admin/suspend-user/' + id, { method:'POST', headers:{ 'x-admin-key': KEY } });
+  loadRiders();
 }
 
 async function call(path, log){
