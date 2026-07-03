@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zambike — Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0E1412;
+    --panel:#151D1A;
+    --panel-2:#1B2521;
+    --line:#26332D;
+    --text:#EAEFEC;
+    --muted:#8FA098;
+    --green:#3DDC84;
+    --orange:#F2994A;
+    --red:#E5484D;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  .route-rule{
+    height:1px;
+    background-image:repeating-linear-gradient(90deg,var(--line) 0 6px, transparent 6px 12px);
+  }
+  header{
+    padding:22px 20px 18px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand .mark{
+    width:34px;height:34px;border-radius:8px;
+    background:linear-gradient(135deg,var(--green),#1E9A5A);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk',sans-serif;font-weight:700;color:#06140C;font-size:16px;
+  }
+  .brand h1{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:19px;font-weight:600;margin:0;letter-spacing:-0.01em;
+  }
+  .brand span{color:var(--muted);font-size:12px;display:block;margin-top:1px;font-family:'JetBrains Mono',monospace;}
+
+  .auth{display:flex;gap:8px;align-items:center;}
+  .auth input{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:9px 12px;
+    border-radius:8px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px;
+    width:200px;
+  }
+  .auth input:focus{outline:none;border-color:var(--green);}
+  button{
+    background:var(--green);
+    color:#06140C;
+    border:none;
+    padding:9px 16px;
+    border-radius:8px;
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    cursor:pointer;
+  }
+  button:hover{filter:brightness(1.08);}
+  button.ghost{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--text);
+  }
+  button.danger{background:var(--red);color:#fff;}
+  button:disabled{opacity:0.4;cursor:not-allowed;}
+
+  .status-pill{
+    font-size:11px;
+    font-family:'JetBrains Mono',monospace;
+    padding:4px 9px;
+    border-radius:20px;
+    border:1px solid var(--line);
+    color:var(--muted);
+  }
+  .status-pill.live{color:var(--green);border-color:rgba(61,220,132,0.35);background:rgba(61,220,132,0.06);}
+  .status-pill.off{color:var(--red);border-color:rgba(229,72,77,0.35);background:rgba(229,72,77,0.06);}
+
+  main{max-width:1000px;margin:0 auto;padding:28px 20px 60px;}
+
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    margin:0 0 10px;
+  }
+
+  .stats-grid{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:12px;
+    margin-bottom:34px;
+  }
+  @media (max-width:700px){.stats-grid{grid-template-columns:repeat(2,1fr);}}
+  .stat-card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px;
+  }
+  .stat-card .n{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:28px;
+    font-weight:700;
+    line-height:1;
+  }
+  .stat-card .l{
+    color:var(--muted);
+    font-size:12px;
+    margin-top:6px;
+  }
+  .stat-card.earn .n{color:var(--green);}
+
+  section{margin-bottom:30px;}
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px;
+  }
+  .panel h2{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:15px;
+    font-weight:600;
+    margin:0 0 4px;
+  }
+  .panel p.desc{color:var(--muted);font-size:12.5px;margin:0 0 16px;line-height:1.5;}
+
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
+  .field input{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:9px 11px;
+    border-radius:8px;
+    font-size:13px;
+    width:150px;
+  }
+  .field input:focus{outline:none;border-color:var(--green);}
+
+  .log{
+    margin-top:14px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    color:var(--muted);
+    padding:10px 12px;
+    background:var(--panel-2);
+    border-radius:8px;
+    border:1px solid var(--line);
+    min-height:20px;
+    white-space:pre-wrap;
+    word-break:break-all;
+  }
+  .log.ok{color:var(--green);}
+  .log.err{color:var(--red);}
+
+  .gap-note{
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+    background:rgba(242,153,74,0.07);
+    border:1px solid rgba(242,153,74,0.3);
+    border-radius:8px;
+    padding:12px 14px;
+    font-size:12.5px;
+    color:#F2B979;
+    line-height:1.5;
+  }
+  .gap-note b{color:var(--orange);}
+
+  footer{
+    text-align:center;
+    color:var(--muted);
+    font-size:11px;
+    font-family:'JetBrains Mono',monospace;
+    padding:20px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark">Z</div>
+    <div>
+      <h1>Zambike Admin</h1>
+      <span>login-pool → ride ops</span>
+    </div>
+  </div>
+  <div class="auth">
+    <input id="apiUrl" type="text" value="https://zambike-server-production.up.railway.app" placeholder="API base URL">
+    <input id="adminKey" type="password" placeholder="Admin key">
+    <button id="connectBtn" onclick="connect()">Connect</button>
+    <span id="connStatus" class="status-pill off">not connected</span>
+  </div>
+</header>
+
+<main>
+
+  <section>
+    <p class="eyebrow">Live totals</p>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="n" id="statRiders">—</div><div class="l">Total riders</div></div>
+      <div class="stat-card"><div class="n" id="statPassengers">—</div><div class="l">Total passengers</div></div>
+      <div class="stat-card"><div class="n" id="statRides">—</div><div class="l">Completed rides</div></div>
+      <div class="stat-card earn"><div class="n" id="statEarnings">—</div><div class="l">Zambike earnings (K)</div></div>
+    </div>
+  </section>
+
+  <div class="route-rule" style="margin-bottom:30px;"></div>
+
+  <section>
+    <div class="panel">
+      <h2>Approve rider</h2>
+      <p class="desc">Approves a rider so they can go online and accept rides. Requires the rider's user ID.</p>
+      <div class="row">
+        <div class="field">
+          <label>USER ID</label>
+          <input type="number" id="approveId" placeholder="e.g. 14">
+        </div>
+        <button onclick="approveRider()">Approve</button>
+      </div>
+      <div class="log" id="approveLog">waiting</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="panel">
+      <h2>Suspend user</h2>
+      <p class="desc">Deactivates a passenger or rider account. They will not be able to log in until reactivated directly in the database.</p>
+      <div class="row">
+        <div class="field">
+          <label>USER ID</label>
+          <input type="number" id="suspendId" placeholder="e.g. 14">
+        </div>
+        <button class="danger" onclick="suspendUser()">Suspend</button>
+      </div>
+      <div class="log" id="suspendLog">waiting</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="panel">
+      <h2>Fare settings</h2>
+      <p class="desc">Adds a new fare row — the server always reads the most recent one. Leave a field blank to keep it unset.</p>
+      <div class="row">
+        <div class="field">
+          <label>BASE FARE (K)</label>
+          <input type="number" id="baseFare" placeholder="10.00" step="0.01">
+        </div>
+        <div class="field">
+          <label>PER KM (K)</label>
+          <input type="number" id="perKm" placeholder="5.00" step="0.01">
+        </div>
+        <div class="field">
+          <label>ZAMBIKE %</label>
+          <input type="number" id="pct" placeholder="10">
+        </div>
+        <button onclick="updateFare()">Save fare</button>
+      </div>
+      <div class="log" id="fareLog">waiting</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="gap-note">
+      <span>⚠</span>
+      <span><b>No rider list yet.</b> The backend has no <code>GET /admin/riders</code> endpoint, so this dashboard can't show which riders are pending approval — you need their user ID from the database first. Say the word and I'll add that endpoint plus a table here.</span>
+    </div>
+  </section>
+
+</main>
+
+<footer>zambike-server · admin console</footer>
+
+<script>
+let API = document.getElementById('apiUrl').value;
+let KEY = '';
+
+async function connect(){
+  API = document.getElementById('apiUrl').value.replace(/\/$/, '');
+  KEY = document.getElementById('adminKey').value;
+  const pill = document.getElementById('connStatus');
+  pill.textContent = 'checking…';
+  pill.className = 'status-pill';
+  try{
+    const res = await fetch(API + '/admin/stats', { headers: { 'x-admin-key': KEY } });
+    const data = await res.json();
+    if(!res.ok){
+      pill.textContent = 'rejected';
+      pill.className = 'status-pill off';
+      return;
+    }
+    pill.textContent = 'connected';
+    pill.className = 'status-pill live';
+    document.getElementById('statRiders').textContent = data.total_riders;
+    document.getElementById('statPassengers').textContent = data.total_passengers;
+    document.getElementById('statRides').textContent = data.total_rides;
+    document.getElementById('statEarnings').textContent = Number(data.total_earnings).toFixed(2);
+  }catch(e){
+    pill.textContent = 'unreachable';
+    pill.className = 'status-pill off';
+  }
+}
+
+async function call(path, log){
+  const el = document.getElementById(log);
+  el.className = 'log';
+  el.textContent = 'sending…';
+  try{
+    const res = await fetch(API + path, {
+      method:'POST',
+      headers:{ 'x-admin-key': KEY, 'Content-Type':'application/json' },
+    });
+    const data = await res.json();
+    if(!res.ok){
+      el.className = 'log err';
+      el.textContent = JSON.stringify(data);
+      return;
+    }
+    el.className = 'log ok';
+    el.textContent = JSON.stringify(data);
+  }catch(e){
+    el.className = 'log err';
+    el.textContent = 'network error: ' + e.message;
+  }
+}
+
+async function approveRider(){
+  const id = document.getElementById('approveId').value;
+  if(!id) return;
+  await call('/admin/approve-rider/' + id, 'approveLog');
+}
+
+async function suspendUser(){
+  const id = document.getElementById('suspendId').value;
+  if(!id) return;
+  await call('/admin/suspend-user/' + id, 'suspendLog');
+}
+
+async function updateFare(){
+  const el = document.getElementById('fareLog');
+  el.className = 'log';
+  el.textContent = 'sending…';
+  const body = {
+    base_fare: document.getElementById('baseFare').value || undefined,
+    per_km_rate: document.getElementById('perKm').value || undefined,
+    zambike_percentage: document.getElementById('pct').value || undefined
+  };
+  try{
+    const res = await fetch(API + '/admin/fare-settings', {
+      method:'POST',
+      headers:{ 'x-admin-key': KEY, 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok){
+      el.className = 'log err';
+      el.textContent = JSON.stringify(data);
+      return;
+    }
+    el.className = 'log ok';
+    el.textContent = JSON.stringify(data);
+  }catch(e){
+    el.className = 'log err';
+    el.textContent = 'network error: ' + e.message;
+  }
+}
+</script>
+
+</body>
+</html>
