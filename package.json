@@ -1,0 +1,18 @@
+{
+  "name": "zambike-server",
+  "version": "1.0.0",
+  "description": "Zambike - Motorbike taxi app for Zambia",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.3",
+    "bcrypt": "^5.1.1",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
