@@ -1,4 +1,4 @@
-const express = require('express');
+app.use(express.static('public'));const express = require('express');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
