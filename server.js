@@ -144,6 +144,29 @@ app.get('/rider/current-ride', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Get nearby ride requests (for riders)
+app.get('/rider/nearby-requests', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
+        const { lat, lng } = req.query;
+
+        const { rows } = await pool.query(
+            `SELECT r.*, u.name as passenger_name, u.phone as passenger_phone,
+             (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
+              cos(radians(r.pickup_lng) - radians($2)) +
+              sin(radians($1)) * sin(radians(r.pickup_lat)))) AS distance_km
+             FROM rides r JOIN users u ON r.passenger_id = u.id
+             WHERE r.status = 'requested'
+             HAVING (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
+              cos(radians(r.pickup_lng) - radians($2)) +
+              sin(radians($1)) * sin(radians(r.pickup_lat)))) < 15
+             ORDER BY r.requested_at ASC`,
+            [lat, lng]
+        );
+        res.json({ rides: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/rider/accept-ride/:rideId', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -331,7 +354,6 @@ app.post('/admin/suspend-user/:userId', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// List all riders (for approval queue)
 app.get('/admin/riders', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
