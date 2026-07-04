@@ -393,6 +393,45 @@ app.post('/admin/force-cancel-ride/:rideId', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// TEMPORARY: debug a ride's pickup vs every rider's current location
+app.get('/admin/debug-ride/:rideId', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+
+        const rideResult = await pool.query('SELECT pickup_lat, pickup_lng FROM rides WHERE id=$1', [req.params.rideId]);
+        if (rideResult.rows.length === 0) return res.status(404).json({ error: 'Ride not found' });
+        const ride = rideResult.rows[0];
+
+        const { rows } = await pool.query(
+            `SELECT u.id, u.name, u.is_online, u.is_approved, u.is_active,
+             rl.latitude, rl.longitude, rl.updated_at
+             FROM users u
+             LEFT JOIN rider_locations rl ON u.id = rl.rider_id
+             WHERE u.role = 'rider'`
+        );
+
+        const riders = rows.map(r => {
+            let distance_km = null;
+            let location_age_seconds = null;
+            if (r.latitude && r.longitude) {
+                distance_km = calculateDistance(
+                    parseFloat(ride.pickup_lat), parseFloat(ride.pickup_lng),
+                    parseFloat(r.latitude), parseFloat(r.longitude)
+                );
+                location_age_seconds = Math.round((Date.now() - new Date(r.updated_at).getTime()) / 1000);
+            }
+            return {
+                id: r.id, name: r.name, is_online: r.is_online,
+                is_approved: r.is_approved, is_active: r.is_active,
+                distance_km, location_age_seconds
+            };
+        });
+
+        res.json({ ride, riders });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/stats', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
