@@ -22,7 +22,6 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
-// ── MIDDLEWARE ─────────────────────────────────────────────────
 function authMiddleware(req, res, next) {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'No token provided' });
@@ -36,7 +35,6 @@ function authMiddleware(req, res, next) {
 
 function pad(n) { return String(n).padStart(2, '0'); }
 
-// ── HELPERS ────────────────────────────────────────────────────
 function calculateDistance(lat1, lng1, lat2, lng2) {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -59,8 +57,6 @@ async function calculateFare(distanceKm) {
         riderEarnings: Math.round(riderEarnings * 100) / 100
     };
 }
-
-// ── AUTH ENDPOINTS ─────────────────────────────────────────────
 
 app.post('/auth/register', async (req, res) => {
     try {
@@ -104,8 +100,6 @@ app.post('/auth/login', async (req, res) => {
         });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
-
-// ── RIDER ENDPOINTS ────────────────────────────────────────────
 
 app.post('/rider/location', authMiddleware, async (req, res) => {
     try {
@@ -220,8 +214,6 @@ app.get('/rider/earnings', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── PASSENGER ENDPOINTS ────────────────────────────────────────
-
 app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
@@ -323,7 +315,6 @@ app.post('/ride/rate/:rideId', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── FARE ESTIMATE ──────────────────────────────────────────────
 app.post('/fare-estimate', async (req, res) => {
     try {
         const { pickup_lat, pickup_lng, dest_lat, dest_lng } = req.body;
@@ -332,8 +323,6 @@ app.post('/fare-estimate', async (req, res) => {
         res.json({ fare, distanceKm: distanceKm.toFixed(2), riderEarnings, zambikeCut });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
-
-// ── ADMIN ENDPOINTS ────────────────────────────────────────────
 
 app.post('/admin/approve-rider/:userId', async (req, res) => {
     try {
@@ -365,7 +354,6 @@ app.get('/admin/riders', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// TEMPORARY: list all non-finished rides (for debugging stuck rides)
 app.get('/admin/active-rides', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
@@ -380,7 +368,6 @@ app.get('/admin/active-rides', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// TEMPORARY: force-cancel a stuck ride by ID
 app.post('/admin/force-cancel-ride/:rideId', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
@@ -393,7 +380,6 @@ app.post('/admin/force-cancel-ride/:rideId', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// TEMPORARY: debug a ride's pickup vs every rider's current location
 app.get('/admin/debug-ride/:rideId', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
@@ -432,6 +418,33 @@ app.get('/admin/debug-ride/:rideId', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// TEMPORARY: run the EXACT nearby-requests query as a specific rider would see it
+app.get('/admin/debug-nearby-as-rider/:riderId', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+
+        const locResult = await pool.query('SELECT latitude, longitude FROM rider_locations WHERE rider_id=$1', [req.params.riderId]);
+        if (locResult.rows.length === 0) return res.status(404).json({ error: 'No location for this rider' });
+        const { latitude, longitude } = locResult.rows[0];
+
+        const { rows } = await pool.query(
+            `SELECT r.*, u.name as passenger_name,
+             (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
+              cos(radians(r.pickup_lng) - radians($2)) +
+              sin(radians($1)) * sin(radians(r.pickup_lat)))) AS distance_km
+             FROM rides r JOIN users u ON r.passenger_id = u.id
+             WHERE r.status = 'requested'
+             HAVING (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
+              cos(radians(r.pickup_lng) - radians($2)) +
+              sin(radians($1)) * sin(radians(r.pickup_lat)))) < 15
+             ORDER BY r.requested_at ASC`,
+            [latitude, longitude]
+        );
+        res.json({ riderLocation: { latitude, longitude }, ridesFound: rows.length, rides: rows });
+    } catch(e) { res.status(500).json({ error: e.message, stack: e.stack }); }
+});
+
 app.get('/admin/stats', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
@@ -466,7 +479,6 @@ app.post('/admin/fare-settings', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── INIT ───────────────────────────────────────────────────────
 async function initDB() {
     const fs = require('fs');
     const schema = fs.readFileSync('./schema.sql', 'utf8');
