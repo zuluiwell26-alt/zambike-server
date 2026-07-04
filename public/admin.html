@@ -377,6 +377,21 @@
     </div>
   </section>
 
+  <section>
+    <div class="panel">
+      <h2>Test: nearby-requests as a specific rider</h2>
+      <p class="desc">Runs the exact same query the app uses for a given rider's current location.</p>
+      <div class="row">
+        <div class="field">
+          <label>RIDER ID</label>
+          <input type="number" id="testRiderId" placeholder="e.g. 6">
+        </div>
+        <button onclick="testNearbyAsRider()">Run test</button>
+      </div>
+      <div class="log" id="testNearbyLog">waiting</div>
+    </div>
+  </section>
+
 </main>
 
 <footer>zambike-server · admin console</footer>
@@ -441,6 +456,28 @@ async function loadActiveRides(){
     `).join('');
   }catch(e){
     body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">network error</td></tr>';
+  }
+}
+
+async function testNearbyAsRider(){
+  const id = document.getElementById('testRiderId').value;
+  const el = document.getElementById('testNearbyLog');
+  if(!id) return;
+  el.className = 'log';
+  el.textContent = 'loading…';
+  try{
+    const res = await fetch(API + '/admin/debug-nearby-as-rider/' + id, { headers: { 'x-admin-key': KEY } });
+    const data = await res.json();
+    if(!res.ok){
+      el.className = 'log err';
+      el.textContent = JSON.stringify(data);
+      return;
+    }
+    el.className = 'log ok';
+    el.textContent = `Rider location: ${data.riderLocation.latitude}, ${data.riderLocation.longitude}\nRides found: ${data.ridesFound}\n\n` + JSON.stringify(data.rides, null, 2);
+  }catch(e){
+    el.className = 'log err';
+    el.textContent = 'network error: ' + e.message;
   }
 }
 
