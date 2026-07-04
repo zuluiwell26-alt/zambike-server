@@ -373,6 +373,7 @@
           </tbody>
         </table>
       </div>
+      <div class="log" id="debugLog" style="display:none;">waiting</div>
     </div>
   </section>
 
@@ -432,11 +433,42 @@ async function loadActiveRides(){
         <td>${r.passenger_name}<br><span style="color:var(--muted);font-size:11px;">${r.passenger_phone}</span></td>
         <td><span class="badge no">${r.status}</span></td>
         <td style="font-size:11px;color:var(--muted);">${new Date(r.requested_at).toLocaleString()}</td>
-        <td><button class="mini-btn danger" onclick="forceCancelRide(${r.id})">Force Cancel</button></td>
+        <td>
+          <button class="mini-btn danger" onclick="forceCancelRide(${r.id})">Force Cancel</button>
+          <button class="mini-btn ghost" onclick="debugRide(${r.id})">Debug</button>
+        </td>
       </tr>
     `).join('');
   }catch(e){
     body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">network error</td></tr>';
+  }
+}
+
+async function debugRide(id){
+  const el = document.getElementById('debugLog');
+  el.style.display = 'block';
+  el.className = 'log';
+  el.textContent = 'loading…';
+  try{
+    const res = await fetch(API + '/admin/debug-ride/' + id, { headers: { 'x-admin-key': KEY } });
+    const data = await res.json();
+    if(!res.ok){
+      el.className = 'log err';
+      el.textContent = JSON.stringify(data);
+      return;
+    }
+    el.className = 'log ok';
+    let text = `Ride #${id} pickup: ${data.ride.pickup_lat}, ${data.ride.pickup_lng}\n\n`;
+    text += 'Riders:\n';
+    data.riders.forEach(r => {
+      text += `#${r.id} ${r.name} — online:${r.is_online} approved:${r.is_approved} active:${r.is_active} — `;
+      text += r.distance_km !== null ? `${r.distance_km.toFixed(2)} km away` : 'no location yet';
+      text += ` (loc updated: ${r.location_age_seconds !== null ? r.location_age_seconds + 's ago' : 'never'})\n`;
+    });
+    el.textContent = text;
+  }catch(e){
+    el.className = 'log err';
+    el.textContent = 'network error: ' + e.message;
   }
 }
 
