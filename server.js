@@ -144,7 +144,6 @@ app.get('/rider/current-ride', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Get nearby ride requests (for riders)
 app.get('/rider/nearby-requests', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -363,6 +362,34 @@ app.get('/admin/riders', async (req, res) => {
              FROM users WHERE role='rider' ORDER BY created_at DESC`
         );
         res.json({ riders: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// TEMPORARY: list all non-finished rides (for debugging stuck rides)
+app.get('/admin/active-rides', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { rows } = await pool.query(
+            `SELECT r.id, r.passenger_id, r.rider_id, r.status, r.requested_at, u.name as passenger_name, u.phone as passenger_phone
+             FROM rides r JOIN users u ON r.passenger_id = u.id
+             WHERE r.status NOT IN ('completed', 'cancelled')
+             ORDER BY r.requested_at DESC`
+        );
+        res.json({ rides: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// TEMPORARY: force-cancel a stuck ride by ID
+app.post('/admin/force-cancel-ride/:rideId', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        await pool.query(
+            `UPDATE rides SET status='cancelled', cancelled_at=NOW(), cancel_reason='admin force-cancel' WHERE id=$1`,
+            [req.params.rideId]
+        );
+        res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
