@@ -138,22 +138,23 @@ app.get('/rider/current-ride', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// FIXED: subquery instead of invalid HAVING-without-GROUP-BY
 app.get('/rider/nearby-requests', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
         const { lat, lng } = req.query;
 
         const { rows } = await pool.query(
-            `SELECT r.*, u.name as passenger_name, u.phone as passenger_phone,
-             (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
-              cos(radians(r.pickup_lng) - radians($2)) +
-              sin(radians($1)) * sin(radians(r.pickup_lat)))) AS distance_km
-             FROM rides r JOIN users u ON r.passenger_id = u.id
-             WHERE r.status = 'requested'
-             HAVING (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
-              cos(radians(r.pickup_lng) - radians($2)) +
-              sin(radians($1)) * sin(radians(r.pickup_lat)))) < 15
-             ORDER BY r.requested_at ASC`,
+            `SELECT * FROM (
+               SELECT r.*, u.name as passenger_name, u.phone as passenger_phone,
+               (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
+                cos(radians(r.pickup_lng) - radians($2)) +
+                sin(radians($1)) * sin(radians(r.pickup_lat)))) AS distance_km
+               FROM rides r JOIN users u ON r.passenger_id = u.id
+               WHERE r.status = 'requested'
+             ) sub
+             WHERE distance_km < 15
+             ORDER BY requested_at ASC`,
             [lat, lng]
         );
         res.json({ rides: rows });
@@ -236,24 +237,25 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
+// FIXED: same subquery pattern
 app.get('/passenger/nearby-riders', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
         const { lat, lng } = req.query;
 
         const { rows } = await pool.query(
-            `SELECT u.id, u.name, u.rating, u.total_rides,
-             rl.latitude, rl.longitude,
-             (6371 * acos(cos(radians($1)) * cos(radians(rl.latitude)) *
-              cos(radians(rl.longitude) - radians($2)) +
-              sin(radians($1)) * sin(radians(rl.latitude)))) AS distance_km
-             FROM users u JOIN rider_locations rl ON u.id = rl.rider_id
-             WHERE u.role='rider' AND u.is_online=true AND u.is_approved=true
-             AND u.is_active=true
-             AND rl.updated_at > NOW() - INTERVAL '2 minutes'
-             HAVING (6371 * acos(cos(radians($1)) * cos(radians(rl.latitude)) *
-              cos(radians(rl.longitude) - radians($2)) +
-              sin(radians($1)) * sin(radians(rl.latitude)))) < 10
+            `SELECT * FROM (
+               SELECT u.id, u.name, u.rating, u.total_rides,
+               rl.latitude, rl.longitude,
+               (6371 * acos(cos(radians($1)) * cos(radians(rl.latitude)) *
+                cos(radians(rl.longitude) - radians($2)) +
+                sin(radians($1)) * sin(radians(rl.latitude)))) AS distance_km
+               FROM users u JOIN rider_locations rl ON u.id = rl.rider_id
+               WHERE u.role='rider' AND u.is_online=true AND u.is_approved=true
+               AND u.is_active=true
+               AND rl.updated_at > NOW() - INTERVAL '2 minutes'
+             ) sub
+             WHERE distance_km < 10
              ORDER BY distance_km ASC`,
             [lat, lng]
         );
@@ -418,7 +420,7 @@ app.get('/admin/debug-ride/:rideId', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// TEMPORARY: run the EXACT nearby-requests query as a specific rider would see it
+// FIXED: same subquery pattern
 app.get('/admin/debug-nearby-as-rider/:riderId', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
@@ -429,16 +431,16 @@ app.get('/admin/debug-nearby-as-rider/:riderId', async (req, res) => {
         const { latitude, longitude } = locResult.rows[0];
 
         const { rows } = await pool.query(
-            `SELECT r.*, u.name as passenger_name,
-             (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
-              cos(radians(r.pickup_lng) - radians($2)) +
-              sin(radians($1)) * sin(radians(r.pickup_lat)))) AS distance_km
-             FROM rides r JOIN users u ON r.passenger_id = u.id
-             WHERE r.status = 'requested'
-             HAVING (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
-              cos(radians(r.pickup_lng) - radians($2)) +
-              sin(radians($1)) * sin(radians(r.pickup_lat)))) < 15
-             ORDER BY r.requested_at ASC`,
+            `SELECT * FROM (
+               SELECT r.*, u.name as passenger_name,
+               (6371 * acos(cos(radians($1)) * cos(radians(r.pickup_lat)) *
+                cos(radians(r.pickup_lng) - radians($2)) +
+                sin(radians($1)) * sin(radians(r.pickup_lat)))) AS distance_km
+               FROM rides r JOIN users u ON r.passenger_id = u.id
+               WHERE r.status = 'requested'
+             ) sub
+             WHERE distance_km < 15
+             ORDER BY requested_at ASC`,
             [latitude, longitude]
         );
         res.json({ riderLocation: { latitude, longitude }, ridesFound: rows.length, rides: rows });
