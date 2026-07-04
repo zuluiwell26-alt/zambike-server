@@ -348,6 +348,33 @@
       </div>
     </div>
   </section>
+  <section>
+    <div class="panel">
+      <div class="refresh-row">
+        <div>
+          <h2 style="margin-bottom:0;">Active Rides</h2>
+          <p class="desc" style="margin-bottom:0;">Rides not yet completed or cancelled. Use Force Cancel to clear a stuck ride.</p>
+        </div>
+        <button class="ghost" onclick="loadActiveRides()">Refresh</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Passenger</th>
+              <th>Status</th>
+              <th>Requested</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="activeRidesBody">
+            <tr><td colspan="5" style="color:var(--muted);">Connect above to load rides</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
 </main>
 
@@ -378,10 +405,44 @@ async function connect(){
     document.getElementById('statRides').textContent = data.total_rides;
     document.getElementById('statEarnings').textContent = Number(data.total_earnings).toFixed(2);
     loadRiders();
+    loadActiveRides();
   }catch(e){
     pill.textContent = 'unreachable';
     pill.className = 'status-pill off';
   }
+}
+
+async function loadActiveRides(){
+  const body = document.getElementById('activeRidesBody');
+  body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">Loading…</td></tr>';
+  try{
+    const res = await fetch(API + '/admin/active-rides', { headers: { 'x-admin-key': KEY } });
+    const data = await res.json();
+    if(!res.ok){
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
+      return;
+    }
+    if(!data.rides || data.rides.length === 0){
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No active rides</td></tr>';
+      return;
+    }
+    body.innerHTML = data.rides.map(r => `
+      <tr>
+        <td>${r.id}</td>
+        <td>${r.passenger_name}<br><span style="color:var(--muted);font-size:11px;">${r.passenger_phone}</span></td>
+        <td><span class="badge no">${r.status}</span></td>
+        <td style="font-size:11px;color:var(--muted);">${new Date(r.requested_at).toLocaleString()}</td>
+        <td><button class="mini-btn danger" onclick="forceCancelRide(${r.id})">Force Cancel</button></td>
+      </tr>
+    `).join('');
+  }catch(e){
+    body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">network error</td></tr>';
+  }
+}
+
+async function forceCancelRide(id){
+  await fetch(API + '/admin/force-cancel-ride/' + id, { method:'POST', headers:{ 'x-admin-key': KEY } });
+  loadActiveRides();
 }
 
 async function loadRiders(){
