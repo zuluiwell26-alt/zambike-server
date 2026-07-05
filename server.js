@@ -58,6 +58,20 @@ async function calculateFare(distanceKm) {
     };
 }
 
+async function sendPushNotification(token, title, body) {
+    if (!token) return;
+    try {
+        await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ to: token, sound: 'default', title, body }),
+        });
+    } catch(e) {}
+}
+
 app.post('/auth/register', async (req, res) => {
     try {
         const { phone, name, role, password } = req.body;
@@ -99,6 +113,15 @@ app.post('/auth/login', async (req, res) => {
                     is_approved: user.is_approved, rating: user.rating }
         });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// Save a push notification token for the logged-in user (works for both roles)
+app.post('/user/push-token', authMiddleware, async (req, res) => {
+    try {
+        const { push_token } = req.body;
+        await pool.query('UPDATE users SET push_token=$1 WHERE id=$2', [push_token, req.user.id]);
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/rider/location', authMiddleware, async (req, res) => {
@@ -169,6 +192,15 @@ app.post('/rider/accept-ride/:rideId', authMiddleware, async (req, res) => {
             [req.user.id, req.params.rideId]
         );
         if (rows.length === 0) return res.status(400).json({ error: 'Ride no longer available' });
+
+        const rider = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+        const passenger = await pool.query('SELECT push_token FROM users WHERE id=$1', [rows[0].passenger_id]);
+        sendPushNotification(
+            passenger.rows[0]?.push_token,
+            'Rider found!',
+            `${rider.rows[0].name} accepted your ride and is on the way.`
+        );
+
         res.json({ success: true, ride: rows[0] });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -231,6 +263,20 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
              dest_lat, dest_lng, dest_address, distanceKm.toFixed(2),
              fare, zambikeCut, riderEarnings, payment_method]
         );
+
+        const nearbyRiders = await pool.query(
+            `SELECT push_token FROM users u
+             JOIN rider_locations rl ON u.id = rl.rider_id
+             WHERE u.role='rider' AND u.is_online=true AND u.is_approved=true AND u.is_active=true
+             AND u.push_token IS NOT NULL
+             AND (6371 * acos(cos(radians($1)) * cos(radians(rl.latitude)) *
+                  cos(radians(rl.longitude) - radians($2)) +
+                  sin(radians($1)) * sin(radians(rl.latitude)))) < 15`,
+            [pickup_lat, pickup_lng]
+        );
+        nearbyRiders.rows.forEach(r => {
+            sendPushNotification(r.push_token, 'New ride nearby!', `Fare: K${fare}`);
+        });
 
         res.json({ success: true, ride: rows[0], fare, distanceKm: distanceKm.toFixed(2) });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
