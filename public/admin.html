@@ -373,22 +373,6 @@
           </tbody>
         </table>
       </div>
-      <div class="log" id="debugLog" style="display:none;">waiting</div>
-    </div>
-  </section>
-
-  <section>
-    <div class="panel">
-      <h2>Test: nearby-requests as a specific rider</h2>
-      <p class="desc">Runs the exact same query the app uses for a given rider's current location.</p>
-      <div class="row">
-        <div class="field">
-          <label>RIDER ID</label>
-          <input type="number" id="testRiderId" placeholder="e.g. 6">
-        </div>
-        <button onclick="testNearbyAsRider()">Run test</button>
-      </div>
-      <div class="log" id="testNearbyLog">waiting</div>
     </div>
   </section>
 
@@ -450,62 +434,11 @@ async function loadActiveRides(){
         <td style="font-size:11px;color:var(--muted);">${new Date(r.requested_at).toLocaleString()}</td>
         <td>
           <button class="mini-btn danger" onclick="forceCancelRide(${r.id})">Force Cancel</button>
-          <button class="mini-btn ghost" onclick="debugRide(${r.id})">Debug</button>
         </td>
       </tr>
     `).join('');
   }catch(e){
     body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">network error</td></tr>';
-  }
-}
-
-async function testNearbyAsRider(){
-  const id = document.getElementById('testRiderId').value;
-  const el = document.getElementById('testNearbyLog');
-  if(!id) return;
-  el.className = 'log';
-  el.textContent = 'loading…';
-  try{
-    const res = await fetch(API + '/admin/debug-nearby-as-rider/' + id, { headers: { 'x-admin-key': KEY } });
-    const data = await res.json();
-    if(!res.ok){
-      el.className = 'log err';
-      el.textContent = JSON.stringify(data);
-      return;
-    }
-    el.className = 'log ok';
-    el.textContent = `Rider location: ${data.riderLocation.latitude}, ${data.riderLocation.longitude}\nRides found: ${data.ridesFound}\n\n` + JSON.stringify(data.rides, null, 2);
-  }catch(e){
-    el.className = 'log err';
-    el.textContent = 'network error: ' + e.message;
-  }
-}
-
-async function debugRide(id){
-  const el = document.getElementById('debugLog');
-  el.style.display = 'block';
-  el.className = 'log';
-  el.textContent = 'loading…';
-  try{
-    const res = await fetch(API + '/admin/debug-ride/' + id, { headers: { 'x-admin-key': KEY } });
-    const data = await res.json();
-    if(!res.ok){
-      el.className = 'log err';
-      el.textContent = JSON.stringify(data);
-      return;
-    }
-    el.className = 'log ok';
-    let text = `Ride #${id} pickup: ${data.ride.pickup_lat}, ${data.ride.pickup_lng}\n\n`;
-    text += 'Riders:\n';
-    data.riders.forEach(r => {
-      text += `#${r.id} ${r.name} — online:${r.is_online} approved:${r.is_approved} active:${r.is_active} — `;
-      text += r.distance_km !== null ? `${r.distance_km.toFixed(2)} km away` : 'no location yet';
-      text += ` (loc updated: ${r.location_age_seconds !== null ? r.location_age_seconds + 's ago' : 'never'})\n`;
-    });
-    el.textContent = text;
-  }catch(e){
-    el.className = 'log err';
-    el.textContent = 'network error: ' + e.message;
   }
 }
 
