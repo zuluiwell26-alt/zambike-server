@@ -74,11 +74,13 @@ async function sendPushNotification(token, title, body) {
 
 app.post('/auth/register', async (req, res) => {
     try {
-        const { phone, name, role, password } = req.body;
+        const { phone, name, role, password, bike_plate } = req.body;
         if (!phone || !name || !role || !password)
             return res.status(400).json({ error: 'All fields required' });
         if (!['passenger', 'rider'].includes(role))
             return res.status(400).json({ error: 'Role must be passenger or rider' });
+        if (role === 'rider' && !bike_plate)
+            return res.status(400).json({ error: 'Bike plate number required for riders' });
 
         const existing = await pool.query('SELECT id FROM users WHERE phone = $1', [phone]);
         if (existing.rows.length > 0)
@@ -86,8 +88,8 @@ app.post('/auth/register', async (req, res) => {
 
         const passwordHash = await bcrypt.hash(password, 10);
         const { rows } = await pool.query(
-            'INSERT INTO users (phone, name, role, password_hash) VALUES ($1, $2, $3, $4) RETURNING id, phone, name, role',
-            [phone, name, role, passwordHash]
+            'INSERT INTO users (phone, name, role, password_hash, bike_plate) VALUES ($1, $2, $3, $4, $5) RETURNING id, phone, name, role',
+            [phone, name, role, passwordHash, bike_plate || null]
         );
         const token = jwt.sign({ id: rows[0].id, role: rows[0].role }, JWT_SECRET, { expiresIn: '30d' });
         res.json({ success: true, user: rows[0], token });
@@ -115,7 +117,6 @@ app.post('/auth/login', async (req, res) => {
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
-// Save a push notification token for the logged-in user (works for both roles)
 app.post('/user/push-token', authMiddleware, async (req, res) => {
     try {
         const { push_token } = req.body;
@@ -311,7 +312,7 @@ app.get('/passenger/current-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
         const { rows } = await pool.query(
-            `SELECT r.*, u.name as rider_name, u.phone as rider_phone,
+            `SELECT r.*, u.name as rider_name, u.phone as rider_phone, u.bike_plate as rider_bike_plate,
              u.rating as rider_rating, rl.latitude as rider_lat, rl.longitude as rider_lng
              FROM rides r
              LEFT JOIN users u ON r.rider_id = u.id
