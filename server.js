@@ -1092,6 +1092,22 @@ app.get('/admin/unpaid-rides', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.post('/admin/debug-payment-test', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { phone, amount } = req.body;
+        const normalizedPhone = normalizePhoneForPayment(phone);
+        const result = await initiateMoneyUnifyPayment(phone, amount);
+        res.json({
+            sentPhone: phone,
+            normalizedPhone: normalizedPhone,
+            authIdConfigured: !!MONEYUNIFY_AUTH_ID,
+            rawResponse: result
+        });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 async function initDB() {
     const fs = require('fs');
     const schema = fs.readFileSync('./schema.sql', 'utf8');
