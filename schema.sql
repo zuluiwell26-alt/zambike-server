@@ -1,4 +1,4 @@
--- ZAMBIKE DATABASE SCHEMA
+C-- ZAMBIKE DATABASE SCHEMA
 
 -- Users table (both passengers and riders)
 CREATE TABLE IF NOT EXISTS users (
@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS rides (
 );
 
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS vehicle_type TEXT DEFAULT 'bike';
+
+-- Ride chat messages
+CREATE TABLE IF NOT EXISTS ride_messages (
+    id SERIAL PRIMARY KEY,
+    ride_id INTEGER REFERENCES rides(id),
+    sender_id INTEGER REFERENCES users(id),
+    sender_role TEXT NOT NULL CHECK (sender_role IN ('passenger', 'rider')),
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
 
 -- Payments table
 CREATE TABLE IF NOT EXISTS payments (
