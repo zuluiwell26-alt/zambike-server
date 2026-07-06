@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'zambike-secret-key';
+const MONEYUNIFY_AUTH_ID = process.env.MONEYUNIFY_AUTH_ID;
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
@@ -111,6 +112,51 @@ async function checkAndGrantReferrerReward(userId) {
 
         await pool.query('UPDATE users SET referral_reward_granted=true WHERE id=$1', [userId]);
     } catch(e) { console.error('Referral reward error:', e); }
+}
+
+function normalizePhoneForPayment(phone) {
+    let cleaned = (phone || '').replace(/\s+/g, '').replace(/[^\d+]/g, '');
+    if (cleaned.startsWith('+260')) cleaned = '0' + cleaned.slice(4);
+    else if (cleaned.startsWith('260')) cleaned = '0' + cleaned.slice(3);
+    else if (!cleaned.startsWith('0')) cleaned = '0' + cleaned;
+    return cleaned;
+}
+
+async function initiateMoneyUnifyPayment(phone, amount) {
+    try {
+        const params = new URLSearchParams({
+            from_payer: normalizePhoneForPayment(phone),
+            amount: String(amount),
+            auth_id: MONEYUNIFY_AUTH_ID,
+        });
+        const res = await fetch('https://api.moneyunify.one/payments/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: params.toString(),
+        });
+        const data = await res.json();
+        return data;
+    } catch(e) {
+        return { isError: true, message: e.message };
+    }
+}
+
+async function verifyMoneyUnifyPayment(transactionId) {
+    try {
+        const params = new URLSearchParams({
+            transaction_id: transactionId,
+            auth_id: MONEYUNIFY_AUTH_ID,
+        });
+        const res = await fetch('https://api.moneyunify.one/payments/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: params.toString(),
+        });
+        const data = await res.json();
+        return data;
+    } catch(e) {
+        return { isError: true, message: e.message };
+    }
 }
 
 app.post('/auth/register', async (req, res) => {
@@ -436,7 +482,7 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
 
         if (status === 'completed') {
             const riderBefore = await pool.query('SELECT total_rides, commission_free_rides_remaining FROM users WHERE id=$1', [req.user.id]);
-            const passengerBefore = await pool.query('SELECT total_trips FROM users WHERE id=$1', [ride.passenger_id]);
+            const passengerBefore = await pool.query('SELECT total_trips, phone FROM users WHERE id=$1', [ride.passenger_id]);
 
             let finalZambikeCut = ride.zambike_cut;
             let finalRiderEarnings = ride.rider_earnings;
@@ -462,6 +508,22 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
             }
             if ((passengerBefore.rows[0]?.total_trips || 0) === 0) {
                 await checkAndGrantReferrerReward(ride.passenger_id);
+            }
+
+            if (ride.fare > 0 && MONEYUNIFY_AUTH_ID) {
+                const passengerPhone = passengerBefore.rows[0]?.phone;
+                const paymentResult = await initiateMoneyUnifyPayment(passengerPhone, ride.fare);
+                if (!paymentResult.isError && paymentResult.data?.transaction_id) {
+                    await pool.query(
+                        'UPDATE rides SET payment_reference=$1, payment_status=$2 WHERE id=$3',
+                        [paymentResult.data.transaction_id, 'pending', ride.id]
+                    );
+                    ride.payment_reference = paymentResult.data.transaction_id;
+                    ride.payment_status = 'pending';
+                } else {
+                    await pool.query('UPDATE rides SET payment_status=$1 WHERE id=$2', ['failed', ride.id]);
+                    ride.payment_status = 'failed';
+                }
             }
         }
 
@@ -693,6 +755,68 @@ app.get('/passenger/current-ride', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/passenger/last-completed-ride/:rideId', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
+        const { rows } = await pool.query(
+            `SELECT r.*, u.name as rider_name FROM rides r
+             LEFT JOIN users u ON r.rider_id = u.id
+             WHERE r.id=$1 AND r.passenger_id=$2`,
+            [req.params.rideId, req.user.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Ride not found' });
+        res.json({ ride: rows[0] });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/passenger/payment-status/:rideId', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
+        const { rows } = await pool.query(
+            'SELECT payment_status, payment_reference, fare FROM rides WHERE id=$1 AND passenger_id=$2',
+            [req.params.rideId, req.user.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Ride not found' });
+        const ride = rows[0];
+
+        if (ride.payment_status === 'pending' && ride.payment_reference) {
+            const verifyResult = await verifyMoneyUnifyPayment(ride.payment_reference);
+            if (!verifyResult.isError) {
+                const remoteStatus = verifyResult.data?.status;
+                if (remoteStatus === 'successful' || remoteStatus === 'success') {
+                    await pool.query('UPDATE rides SET payment_status=$1 WHERE id=$2', ['paid', req.params.rideId]);
+                    ride.payment_status = 'paid';
+                } else if (remoteStatus === 'failed' || remoteStatus === 'error') {
+                    await pool.query('UPDATE rides SET payment_status=$1 WHERE id=$2', ['failed', req.params.rideId]);
+                    ride.payment_status = 'failed';
+                }
+            }
+        }
+
+        res.json({ payment_status: ride.payment_status, fare: ride.fare });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/passenger/retry-payment/:rideId', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
+        const rideResult = await pool.query('SELECT fare, payment_status FROM rides WHERE id=$1 AND passenger_id=$2', [req.params.rideId, req.user.id]);
+        if (rideResult.rows.length === 0) return res.status(404).json({ error: 'Ride not found' });
+        const ride = rideResult.rows[0];
+
+        const userResult = await pool.query('SELECT phone FROM users WHERE id=$1', [req.user.id]);
+        const phone = userResult.rows[0]?.phone;
+
+        const paymentResult = await initiateMoneyUnifyPayment(phone, ride.fare);
+        if (!paymentResult.isError && paymentResult.data?.transaction_id) {
+            await pool.query('UPDATE rides SET payment_reference=$1, payment_status=$2 WHERE id=$3', [paymentResult.data.transaction_id, 'pending', req.params.rideId]);
+            res.json({ success: true });
+        } else {
+            res.status(400).json({ error: paymentResult.message || 'Could not initiate payment' });
+        }
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/passenger/scheduled-rides', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
@@ -713,7 +837,7 @@ app.get('/passenger/ride-history', authMiddleware, async (req, res) => {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
         const { rows } = await pool.query(
             `SELECT r.id, r.pickup_address, r.dest_address, r.fare, r.distance_km, r.status,
-             r.requested_at, r.completed_at, u.name as rider_name
+             r.requested_at, r.completed_at, r.payment_status, u.name as rider_name
              FROM rides r
              LEFT JOIN users u ON r.rider_id = u.id
              WHERE r.passenger_id=$1 AND r.status IN ('completed', 'cancelled')
@@ -951,6 +1075,20 @@ app.post('/admin/withdrawal-requests/:id/reject', async (req, res) => {
             [note || 'Rejected by admin', req.params.id]
         );
         res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/unpaid-rides', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { rows } = await pool.query(
+            `SELECT r.id, r.fare, r.payment_status, r.completed_at, u.name as passenger_name, u.phone as passenger_phone
+             FROM rides r JOIN users u ON r.passenger_id = u.id
+             WHERE r.status='completed' AND r.payment_status IN ('pending', 'failed')
+             ORDER BY r.completed_at DESC LIMIT 100`
+        );
+        res.json({ rides: rows });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
