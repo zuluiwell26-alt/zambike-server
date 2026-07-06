@@ -28,6 +28,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS work_lat NUMERIC(10,7);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS work_lng NUMERIC(10,7);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS work_address TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_type TEXT DEFAULT 'bike';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by INTEGER REFERENCES users(id);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS free_rides_remaining INTEGER DEFAULT 0;
 
 -- Rider locations (updated in real time)
 CREATE TABLE IF NOT EXISTS rider_locations (
@@ -68,6 +71,10 @@ CREATE TABLE IF NOT EXISTS rides (
 
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS vehicle_type TEXT DEFAULT 'bike';
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS scheduled_time TIMESTAMP;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS promo_code TEXT;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS discount_amount NUMERIC DEFAULT 0;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS original_fare NUMERIC;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS used_free_ride BOOLEAN DEFAULT FALSE;
 
 -- Ride chat messages
 CREATE TABLE IF NOT EXISTS ride_messages (
@@ -76,6 +83,19 @@ CREATE TABLE IF NOT EXISTS ride_messages (
     sender_id INTEGER REFERENCES users(id),
     sender_role TEXT NOT NULL CHECK (sender_role IN ('passenger', 'rider')),
     message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Promo codes (admin-created)
+CREATE TABLE IF NOT EXISTS promo_codes (
+    id SERIAL PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    discount_type TEXT NOT NULL CHECK (discount_type IN ('percent', 'flat')),
+    discount_value NUMERIC NOT NULL,
+    max_uses INTEGER,
+    uses_count INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    expires_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
