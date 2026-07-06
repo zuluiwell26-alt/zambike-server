@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS ride_stops (
     reached_at TIMESTAMP
 );
 
+ALTER TABLE ride_stops ADD COLUMN IF NOT EXISTS wait_minutes INTEGER DEFAULT 0;
+
 -- Ride chat messages
 CREATE TABLE IF NOT EXISTS ride_messages (
     id SERIAL PRIMARY KEY,
