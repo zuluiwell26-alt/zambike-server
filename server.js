@@ -153,6 +153,45 @@ app.post('/user/favorites', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/ride/messages/:rideId', authMiddleware, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT id, sender_id, sender_role, message, created_at FROM ride_messages WHERE ride_id=$1 ORDER BY created_at ASC LIMIT 200',
+            [req.params.rideId]
+        );
+        res.json({ messages: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/ride/messages/:rideId', authMiddleware, async (req, res) => {
+    try {
+        const { message } = req.body;
+        if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+
+        const { rows } = await pool.query(
+            'INSERT INTO ride_messages (ride_id, sender_id, sender_role, message) VALUES ($1,$2,$3,$4) RETURNING *',
+            [req.params.rideId, req.user.id, req.user.role, message.trim()]
+        );
+
+        const rideResult = await pool.query('SELECT passenger_id, rider_id FROM rides WHERE id=$1', [req.params.rideId]);
+        if (rideResult.rows.length > 0) {
+            const ride = rideResult.rows[0];
+            const recipientId = req.user.role === 'passenger' ? ride.rider_id : ride.passenger_id;
+            if (recipientId) {
+                const recipient = await pool.query('SELECT push_token, name FROM users WHERE id=$1', [recipientId]);
+                const senderName = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+                sendPushNotification(
+                    recipient.rows[0]?.push_token,
+                    `Message from ${senderName.rows[0]?.name || 'your ride'}`,
+                    message.trim()
+                );
+            }
+        }
+
+        res.json({ success: true, message: rows[0] });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/rider/location', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
