@@ -379,6 +379,37 @@
     </div>
   </section>
 
+  <section>
+    <div class="panel">
+      <div class="refresh-row">
+        <div>
+          <h2 style="margin-bottom:0;">Withdrawal Requests</h2>
+          <p class="desc" style="margin-bottom:0;">Riders requesting payout from their wallet. Mark as Paid once you've sent the money via mobile money.</p>
+        </div>
+        <button class="ghost" onclick="loadWithdrawals()">Refresh</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Rider</th>
+              <th>Amount</th>
+              <th>Network</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Requested</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="withdrawalsBody">
+            <tr><td colspan="8" style="color:var(--muted);">Connect above to load requests</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <footer>zambike-server · admin console</footer>
@@ -409,6 +440,7 @@ async function connect(){
     document.getElementById('statEarnings').textContent = Number(data.total_earnings).toFixed(2);
     loadRiders();
     loadActiveRides();
+    loadWithdrawals();
   }catch(e){
     pill.textContent = 'unreachable';
     pill.className = 'status-pill off';
@@ -448,6 +480,56 @@ async function loadActiveRides(){
 async function forceCancelRide(id){
   await fetch(API + '/admin/force-cancel-ride/' + id, { method:'POST', headers:{ 'x-admin-key': KEY } });
   loadActiveRides();
+}
+
+async function loadWithdrawals(){
+  const body = document.getElementById('withdrawalsBody');
+  body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);">Loading…</td></tr>';
+  try{
+    const res = await fetch(API + '/admin/withdrawal-requests', { headers: { 'x-admin-key': KEY } });
+    const data = await res.json();
+    if(!res.ok){
+      body.innerHTML = '<tr><td colspan="8" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
+      return;
+    }
+    if(!data.requests || data.requests.length === 0){
+      body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);">No withdrawal requests</td></tr>';
+      return;
+    }
+    body.innerHTML = data.requests.map(w => `
+      <tr>
+        <td>${w.id}</td>
+        <td>${w.rider_name}</td>
+        <td>K${Number(w.amount).toFixed(2)}</td>
+        <td>${w.network === 'airtel' ? 'Airtel' : 'MTN'}</td>
+        <td>${w.phone_number}</td>
+        <td><span class="badge ${w.status === 'paid' ? 'yes' : w.status === 'rejected' ? 'off' : 'no'}">${w.status}</span></td>
+        <td style="font-size:11px;color:var(--muted);">${new Date(w.requested_at).toLocaleString()}</td>
+        <td>
+          ${w.status === 'pending' ? `
+            <button class="mini-btn" onclick="completeWithdrawal(${w.id})">Mark Paid</button>
+            <button class="mini-btn danger" onclick="rejectWithdrawal(${w.id})">Reject</button>
+          ` : ''}
+        </td>
+      </tr>
+    `).join('');
+  }catch(e){
+    body.innerHTML = '<tr><td colspan="8" style="color:var(--red);">network error</td></tr>';
+  }
+}
+
+async function completeWithdrawal(id){
+  await fetch(API + '/admin/withdrawal-requests/' + id + '/complete', { method:'POST', headers:{ 'x-admin-key': KEY } });
+  loadWithdrawals();
+}
+
+async function rejectWithdrawal(id){
+  await fetch(API + '/admin/withdrawal-requests/' + id + '/reject', {
+    method:'POST',
+    headers:{ 'x-admin-key': KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: 'Rejected by admin' })
+  });
+  loadWithdrawals();
 }
 
 async function loadRiders(){
