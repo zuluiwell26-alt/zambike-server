@@ -36,6 +36,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS discount_rides_remaining INTEGER DEFA
 ALTER TABLE users ADD COLUMN IF NOT EXISTS discount_rides_percent NUMERIC DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS new_signup_discount_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance NUMERIC DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS commission_owed NUMERIC DEFAULT 0;
 
 -- Rider locations (updated in real time)
 CREATE TABLE IF NOT EXISTS rider_locations (
@@ -63,7 +64,7 @@ CREATE TABLE IF NOT EXISTS rides (
     status TEXT DEFAULT 'requested' CHECK (status IN (
         'requested', 'accepted', 'arriving', 'in_progress', 'completed', 'cancelled'
     )),
-    payment_method TEXT CHECK (payment_method IN ('airtel', 'mtn')),
+    payment_method TEXT CHECK (payment_method IN ('airtel', 'mtn', 'cash')),
     payment_status TEXT DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed')),
     payment_reference TEXT,
     requested_at TIMESTAMP DEFAULT NOW(),
@@ -129,6 +130,15 @@ CREATE TABLE IF NOT EXISTS withdrawal_requests (
     requested_at TIMESTAMP DEFAULT NOW(),
     processed_at TIMESTAMP,
     admin_note TEXT
+);
+
+-- Log of commission payments riders send in to settle owed commission
+CREATE TABLE IF NOT EXISTS commission_payments (
+    id SERIAL PRIMARY KEY,
+    rider_id INTEGER REFERENCES users(id),
+    amount NUMERIC(10,2) NOT NULL,
+    recorded_at TIMESTAMP DEFAULT NOW(),
+    note TEXT
 );
 
 -- Payments table
