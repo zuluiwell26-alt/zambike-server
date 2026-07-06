@@ -410,6 +410,25 @@
     </div>
   </section>
 
+  <section>
+    <div class="panel">
+      <h2>Test: MoneyUnify payment request</h2>
+      <p class="desc">Sends a real test charge request and shows the exact raw response.</p>
+      <div class="row">
+        <div class="field">
+          <label>PHONE NUMBER</label>
+          <input type="text" id="testPhone" placeholder="e.g. 0961234567">
+        </div>
+        <div class="field">
+          <label>AMOUNT (K)</label>
+          <input type="number" id="testAmount" placeholder="e.g. 1">
+        </div>
+        <button onclick="testPayment()">Send test charge</button>
+      </div>
+      <div class="log" id="testPaymentLog">waiting</div>
+    </div>
+  </section>
+
 </main>
 
 <footer>zambike-server · admin console</footer>
@@ -530,6 +549,28 @@ async function rejectWithdrawal(id){
     body: JSON.stringify({ note: 'Rejected by admin' })
   });
   loadWithdrawals();
+}
+
+async function testPayment(){
+  const phone = document.getElementById('testPhone').value;
+  const amount = document.getElementById('testAmount').value;
+  const el = document.getElementById('testPaymentLog');
+  if(!phone || !amount) return;
+  el.className = 'log';
+  el.textContent = 'Sending…';
+  try{
+    const res = await fetch(API + '/admin/debug-payment-test', {
+      method: 'POST',
+      headers: { 'x-admin-key': KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, amount: Number(amount) })
+    });
+    const data = await res.json();
+    el.className = res.ok ? 'log ok' : 'log err';
+    el.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    el.className = 'log err';
+    el.textContent = 'network error: ' + e.message;
+  }
 }
 
 async function loadRiders(){
