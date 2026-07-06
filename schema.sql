@@ -27,6 +27,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS home_address TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS work_lat NUMERIC(10,7);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS work_lng NUMERIC(10,7);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS work_address TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_type TEXT DEFAULT 'bike';
 
 -- Rider locations (updated in real time)
 CREATE TABLE IF NOT EXISTS rider_locations (
@@ -64,6 +65,8 @@ CREATE TABLE IF NOT EXISTS rides (
     cancelled_at TIMESTAMP,
     cancel_reason TEXT
 );
+
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS vehicle_type TEXT DEFAULT 'bike';
 
 -- Payments table
 CREATE TABLE IF NOT EXISTS payments (
