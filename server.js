@@ -616,8 +616,8 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
 
         for (let i = 0; i < stopsList.length; i++) {
             await pool.query(
-                'INSERT INTO ride_stops (ride_id, seq, lat, lng, address) VALUES ($1,$2,$3,$4,$5)',
-                [newRide.id, i + 1, stopsList[i].lat, stopsList[i].lng, stopsList[i].address || '']
+                'INSERT INTO ride_stops (ride_id, seq, lat, lng, address, wait_minutes) VALUES ($1,$2,$3,$4,$5,$6)',
+                [newRide.id, i + 1, stopsList[i].lat, stopsList[i].lng, stopsList[i].address || '', stopsList[i].wait_minutes || 0]
             );
         }
 
