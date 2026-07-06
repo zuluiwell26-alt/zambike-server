@@ -1,4 +1,4 @@
-C-- ZAMBIKE DATABASE SCHEMA
+-- ZAMBIKE DATABASE SCHEMA
 
 -- Users table (both passengers and riders)
 CREATE TABLE IF NOT EXISTS users (
