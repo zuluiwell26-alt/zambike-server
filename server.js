@@ -45,6 +45,17 @@ function calculateDistance(lat1, lng1, lat2, lng2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+function calculateTotalRouteDistance(pickup, stops, destination) {
+    let total = 0;
+    let prev = pickup;
+    for (const stop of stops) {
+        total += calculateDistance(prev.lat, prev.lng, stop.lat, stop.lng);
+        prev = stop;
+    }
+    total += calculateDistance(prev.lat, prev.lng, destination.lat, destination.lng);
+    return total;
+}
+
 const VEHICLE_MULTIPLIERS = { bike: 1, car: 2, truck: 3.5 };
 
 async function calculateFare(distanceKm, vehicleType = 'bike') {
@@ -287,6 +298,28 @@ app.post('/ride/messages/:rideId', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/ride/stops/:rideId', authMiddleware, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT * FROM ride_stops WHERE ride_id=$1 ORDER BY seq ASC',
+            [req.params.rideId]
+        );
+        res.json({ stops: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/ride/stops/:stopId/reached', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
+        const { rows } = await pool.query(
+            'UPDATE ride_stops SET reached_at=NOW() WHERE id=$1 RETURNING *',
+            [req.params.stopId]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Stop not found' });
+        res.json({ success: true, stop: rows[0] });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/rider/location', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
@@ -378,6 +411,16 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
         const { status } = req.body;
         const validStatuses = ['arriving', 'in_progress', 'completed'];
         if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+        if (status === 'completed') {
+            const unreached = await pool.query(
+                'SELECT id FROM ride_stops WHERE ride_id=$1 AND reached_at IS NULL',
+                [req.params.rideId]
+            );
+            if (unreached.rows.length > 0) {
+                return res.status(400).json({ error: 'Please mark all stops as reached before completing the ride' });
+            }
+        }
 
         let extra = '';
         if (status === 'in_progress') extra = ', started_at=NOW()';
@@ -498,9 +541,14 @@ app.get('/rider/withdrawal-history', authMiddleware, async (req, res) => {
 app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
-        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time, promo_code } = req.body;
+        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time, promo_code, stops } = req.body;
 
-        const distanceKm = calculateDistance(pickup_lat, pickup_lng, dest_lat, dest_lng);
+        const stopsList = Array.isArray(stops) ? stops.slice(0, 2) : [];
+        const distanceKm = calculateTotalRouteDistance(
+            { lat: pickup_lat, lng: pickup_lng },
+            stopsList.map(s => ({ lat: s.lat, lng: s.lng })),
+            { lat: dest_lat, lng: dest_lng }
+        );
         const { fare: baseFare, zambikeCut: baseCut } = await calculateFare(distanceKm, vehicle_type || 'bike');
 
         let finalFare = baseFare;
@@ -564,6 +612,15 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
              scheduled_time || null, appliedLabel, discountAmount, baseFare]
         );
 
+        const newRide = rows[0];
+
+        for (let i = 0; i < stopsList.length; i++) {
+            await pool.query(
+                'INSERT INTO ride_stops (ride_id, seq, lat, lng, address) VALUES ($1,$2,$3,$4,$5)',
+                [newRide.id, i + 1, stopsList[i].lat, stopsList[i].lng, stopsList[i].address || '']
+            );
+        }
+
         if (consumeDiscountRide) {
             await pool.query('UPDATE users SET discount_rides_remaining = discount_rides_remaining - 1 WHERE id=$1', [req.user.id]);
         }
@@ -589,7 +646,7 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
             });
         }
 
-        res.json({ success: true, ride: rows[0], fare: finalFare, originalFare: baseFare, discountAmount, appliedLabel, distanceKm: distanceKm.toFixed(2) });
+        res.json({ success: true, ride: newRide, fare: finalFare, originalFare: baseFare, discountAmount, appliedLabel, distanceKm: distanceKm.toFixed(2) });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
@@ -706,8 +763,13 @@ app.post('/ride/rate/:rideId', authMiddleware, async (req, res) => {
 
 app.post('/fare-estimate', async (req, res) => {
     try {
-        const { pickup_lat, pickup_lng, dest_lat, dest_lng, vehicle_type } = req.body;
-        const distanceKm = calculateDistance(pickup_lat, pickup_lng, dest_lat, dest_lng);
+        const { pickup_lat, pickup_lng, dest_lat, dest_lng, vehicle_type, stops } = req.body;
+        const stopsList = Array.isArray(stops) ? stops.slice(0, 2) : [];
+        const distanceKm = calculateTotalRouteDistance(
+            { lat: pickup_lat, lng: pickup_lng },
+            stopsList.map(s => ({ lat: s.lat, lng: s.lng })),
+            { lat: dest_lat, lng: dest_lng }
+        );
         const { fare, zambikeCut, riderEarnings } = await calculateFare(distanceKm, vehicle_type || 'bike');
         res.json({ fare, distanceKm: distanceKm.toFixed(2), riderEarnings, zambikeCut });
     } catch(e) { res.status(500).json({ error: e.message }); }
