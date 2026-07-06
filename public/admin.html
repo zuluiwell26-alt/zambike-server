@@ -335,6 +335,8 @@
               <th>ID</th>
               <th>Name</th>
               <th>Phone</th>
+              <th>Vehicle</th>
+              <th>Plate</th>
               <th>Approved</th>
               <th>Active</th>
               <th>Rides</th>
@@ -342,10 +344,11 @@
             </tr>
           </thead>
           <tbody id="ridersBody">
-            <tr><td colspan="7" style="color:var(--muted);">Connect above to load riders</td></tr>
+            <tr><td colspan="9" style="color:var(--muted);">Connect above to load riders</td></tr>
           </tbody>
         </table>
       </div>
+      <div class="log" id="photoLog" style="display:none;"></div>
     </div>
   </section>
   <section>
@@ -449,16 +452,16 @@ async function forceCancelRide(id){
 
 async function loadRiders(){
   const body = document.getElementById('ridersBody');
-  body.innerHTML = '<tr><td colspan="7" style="color:var(--muted);">Loading…</td></tr>';
+  body.innerHTML = '<tr><td colspan="9" style="color:var(--muted);">Loading…</td></tr>';
   try{
     const res = await fetch(API + '/admin/riders', { headers: { 'x-admin-key': KEY } });
     const data = await res.json();
     if(!res.ok){
-      body.innerHTML = '<tr><td colspan="7" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
+      body.innerHTML = '<tr><td colspan="9" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
       return;
     }
     if(!data.riders || data.riders.length === 0){
-      body.innerHTML = '<tr><td colspan="7" style="color:var(--muted);">No riders yet</td></tr>';
+      body.innerHTML = '<tr><td colspan="9" style="color:var(--muted);">No riders yet</td></tr>';
       return;
     }
     body.innerHTML = data.riders.map(r => `
@@ -466,17 +469,41 @@ async function loadRiders(){
         <td>${r.id}</td>
         <td>${r.name}</td>
         <td>${r.phone}</td>
+        <td>${r.vehicle_type || 'bike'}</td>
+        <td>${r.bike_plate || '—'}</td>
         <td><span class="badge ${r.is_approved ? 'yes' : 'no'}">${r.is_approved ? 'approved' : 'pending'}</span></td>
         <td><span class="badge ${r.is_active ? 'yes' : 'off'}">${r.is_active ? 'active' : 'suspended'}</span></td>
         <td>${r.total_rides}</td>
         <td>
+          ${r.has_license_photo ? `<button class="mini-btn ghost" onclick="viewLicense(${r.id})">View ID</button>` : '<span style="color:var(--muted);font-size:11px;">No ID</span>'}
           ${!r.is_approved ? `<button class="mini-btn" onclick="quickApprove(${r.id})">Approve</button>` : ''}
           ${r.is_active ? `<button class="mini-btn danger" onclick="quickSuspend(${r.id})">Suspend</button>` : ''}
         </td>
       </tr>
     `).join('');
   }catch(e){
-    body.innerHTML = '<tr><td colspan="7" style="color:var(--red);">network error</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" style="color:var(--red);">network error</td></tr>';
+  }
+}
+
+async function viewLicense(id){
+  const el = document.getElementById('photoLog');
+  el.style.display = 'block';
+  el.className = 'log';
+  el.innerHTML = 'Loading photo…';
+  try{
+    const res = await fetch(API + '/admin/rider-license/' + id, { headers: { 'x-admin-key': KEY } });
+    const data = await res.json();
+    if(!res.ok){
+      el.className = 'log err';
+      el.innerHTML = JSON.stringify(data);
+      return;
+    }
+    el.className = 'log ok';
+    el.innerHTML = '<img src="' + data.license_photo + '" style="max-width:100%;border-radius:10px;margin-top:6px;" />';
+  }catch(e){
+    el.className = 'log err';
+    el.innerHTML = 'network error: ' + e.message;
   }
 }
 
