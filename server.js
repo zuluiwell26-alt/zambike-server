@@ -247,6 +247,22 @@ app.get('/rider/earnings', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/rider/ride-history', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
+        const { rows } = await pool.query(
+            `SELECT r.id, r.pickup_address, r.dest_address, r.rider_earnings, r.distance_km, r.status,
+             r.requested_at, r.completed_at, u.name as passenger_name
+             FROM rides r
+             LEFT JOIN users u ON r.passenger_id = u.id
+             WHERE r.rider_id=$1 AND r.status IN ('completed', 'cancelled')
+             ORDER BY r.requested_at DESC LIMIT 50`,
+            [req.user.id]
+        );
+        res.json({ rides: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
@@ -322,6 +338,22 @@ app.get('/passenger/current-ride', authMiddleware, async (req, res) => {
             [req.user.id]
         );
         res.json({ ride: rows[0] || null });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/passenger/ride-history', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
+        const { rows } = await pool.query(
+            `SELECT r.id, r.pickup_address, r.dest_address, r.fare, r.distance_km, r.status,
+             r.requested_at, r.completed_at, u.name as rider_name
+             FROM rides r
+             LEFT JOIN users u ON r.rider_id = u.id
+             WHERE r.passenger_id=$1 AND r.status IN ('completed', 'cancelled')
+             ORDER BY r.requested_at DESC LIMIT 50`,
+            [req.user.id]
+        );
+        res.json({ rides: rows });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
