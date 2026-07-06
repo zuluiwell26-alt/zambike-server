@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS ride_stops (
     lat NUMERIC(10,7) NOT NULL,
     lng NUMERIC(10,7) NOT NULL,
     address TEXT,
+    wait_minutes INTEGER DEFAULT 0,
     reached_at TIMESTAMP
 );
 
