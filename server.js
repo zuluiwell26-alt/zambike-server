@@ -125,6 +125,29 @@ app.post('/user/push-token', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/user/favorites', authMiddleware, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            'SELECT home_lat, home_lng, home_address, work_lat, work_lng, work_address FROM users WHERE id=$1',
+            [req.user.id]
+        );
+        res.json(rows[0] || {});
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/user/favorites', authMiddleware, async (req, res) => {
+    try {
+        const { type, lat, lng, address } = req.body;
+        if (!['home', 'work'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+        const col = type === 'home' ? ['home_lat', 'home_lng', 'home_address'] : ['work_lat', 'work_lng', 'work_address'];
+        await pool.query(
+            `UPDATE users SET ${col[0]}=$1, ${col[1]}=$2, ${col[2]}=$3 WHERE id=$4`,
+            [lat, lng, address, req.user.id]
+        );
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/rider/location', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
