@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'zambike-secret-key';
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -77,13 +77,15 @@ async function sendPushNotification(token, title, body) {
 
 app.post('/auth/register', async (req, res) => {
     try {
-        const { phone, name, role, password, bike_plate, vehicle_type } = req.body;
+        const { phone, name, role, password, bike_plate, vehicle_type, license_photo } = req.body;
         if (!phone || !name || !role || !password)
             return res.status(400).json({ error: 'All fields required' });
         if (!['passenger', 'rider'].includes(role))
             return res.status(400).json({ error: 'Role must be passenger or rider' });
         if (role === 'rider' && !bike_plate)
             return res.status(400).json({ error: 'Vehicle plate number required for riders' });
+        if (role === 'rider' && !license_photo)
+            return res.status(400).json({ error: 'ID or license photo required for riders' });
 
         const existing = await pool.query('SELECT id FROM users WHERE phone = $1', [phone]);
         if (existing.rows.length > 0)
@@ -91,8 +93,8 @@ app.post('/auth/register', async (req, res) => {
 
         const passwordHash = await bcrypt.hash(password, 10);
         const { rows } = await pool.query(
-            'INSERT INTO users (phone, name, role, password_hash, bike_plate, vehicle_type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, phone, name, role',
-            [phone, name, role, passwordHash, bike_plate || null, role === 'rider' ? (vehicle_type || 'bike') : null]
+            'INSERT INTO users (phone, name, role, password_hash, bike_plate, vehicle_type, license_photo) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, phone, name, role',
+            [phone, name, role, passwordHash, bike_plate || null, role === 'rider' ? (vehicle_type || 'bike') : null, license_photo || null]
         );
         const token = jwt.sign({ id: rows[0].id, role: rows[0].role }, JWT_SECRET, { expiresIn: '30d' });
         res.json({ success: true, user: rows[0], token });
@@ -456,10 +458,21 @@ app.get('/admin/riders', async (req, res) => {
         const adminKey = req.headers['x-admin-key'];
         if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
         const { rows } = await pool.query(
-            `SELECT id, phone, name, is_approved, is_online, is_active, rating, total_rides, created_at, vehicle_type
+            `SELECT id, phone, name, is_approved, is_online, is_active, rating, total_rides, created_at, vehicle_type, bike_plate,
+             (license_photo IS NOT NULL) as has_license_photo
              FROM users WHERE role='rider' ORDER BY created_at DESC`
         );
         res.json({ riders: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/rider-license/:userId', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { rows } = await pool.query('SELECT license_photo FROM users WHERE id=$1', [req.params.userId]);
+        if (rows.length === 0 || !rows[0].license_photo) return res.status(404).json({ error: 'No photo on file' });
+        res.json({ license_photo: rows[0].license_photo });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
