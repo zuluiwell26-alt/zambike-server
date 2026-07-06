@@ -409,7 +409,7 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
             }
 
             await pool.query(
-                'UPDATE users SET total_rides=total_rides+1, total_earnings=total_earnings+$1 WHERE id=$2',
+                'UPDATE users SET total_rides=total_rides+1, total_earnings=total_earnings+$1, wallet_balance=wallet_balance+$1 WHERE id=$2',
                 [finalRiderEarnings, req.user.id]
             );
             await pool.query('UPDATE users SET total_trips=total_trips+1 WHERE id=$1', [ride.passenger_id]);
@@ -452,6 +452,46 @@ app.get('/rider/ride-history', authMiddleware, async (req, res) => {
             [req.user.id]
         );
         res.json({ rides: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/rider/wallet', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
+        const { rows } = await pool.query('SELECT wallet_balance FROM users WHERE id=$1', [req.user.id]);
+        res.json({ balance: rows[0]?.wallet_balance || 0 });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/rider/withdraw', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
+        const { amount, phone_number, network } = req.body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+        if (!phone_number || !network) return res.status(400).json({ error: 'Phone number and network required' });
+
+        const userResult = await pool.query('SELECT wallet_balance FROM users WHERE id=$1', [req.user.id]);
+        const balance = parseFloat(userResult.rows[0]?.wallet_balance || 0);
+        if (amount > balance) return res.status(400).json({ error: 'Amount exceeds your wallet balance' });
+
+        await pool.query('UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id=$2', [amount, req.user.id]);
+        const { rows } = await pool.query(
+            `INSERT INTO withdrawal_requests (rider_id, amount, phone_number, network) VALUES ($1,$2,$3,$4) RETURNING *`,
+            [req.user.id, amount, phone_number, network]
+        );
+
+        res.json({ success: true, request: rows[0] });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/rider/withdrawal-history', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
+        const { rows } = await pool.query(
+            'SELECT * FROM withdrawal_requests WHERE rider_id=$1 ORDER BY requested_at DESC LIMIT 30',
+            [req.user.id]
+        );
+        res.json({ requests: rows });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -804,6 +844,50 @@ app.post('/admin/promo-codes/:id/toggle', async (req, res) => {
         const adminKey = req.headers['x-admin-key'];
         if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
         await pool.query('UPDATE promo_codes SET is_active = NOT is_active WHERE id=$1', [req.params.id]);
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/withdrawal-requests', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { rows } = await pool.query(
+            `SELECT w.*, u.name as rider_name FROM withdrawal_requests w
+             JOIN users u ON w.rider_id = u.id
+             ORDER BY w.requested_at DESC LIMIT 100`
+        );
+        res.json({ requests: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/withdrawal-requests/:id/complete', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        await pool.query(
+            `UPDATE withdrawal_requests SET status='paid', processed_at=NOW() WHERE id=$1`,
+            [req.params.id]
+        );
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/withdrawal-requests/:id/reject', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { note } = req.body;
+        const requestResult = await pool.query('SELECT rider_id, amount, status FROM withdrawal_requests WHERE id=$1', [req.params.id]);
+        if (requestResult.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
+        const wr = requestResult.rows[0];
+        if (wr.status !== 'pending') return res.status(400).json({ error: 'Request already processed' });
+
+        await pool.query('UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id=$2', [wr.amount, wr.rider_id]);
+        await pool.query(
+            `UPDATE withdrawal_requests SET status='rejected', processed_at=NOW(), admin_note=$1 WHERE id=$2`,
+            [note || 'Rejected by admin', req.params.id]
+        );
         res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
