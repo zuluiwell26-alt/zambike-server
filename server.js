@@ -80,7 +80,6 @@ function generateReferralCode(name, id) {
     return clean + id;
 }
 
-// Called whenever a user completes their very first ride ever, to unlock whoever referred them
 async function checkAndGrantReferrerReward(userId) {
     try {
         const userResult = await pool.query('SELECT referred_by, referral_reward_granted FROM users WHERE id=$1', [userId]);
@@ -170,12 +169,19 @@ app.post('/auth/login', async (req, res) => {
 app.get('/user/referral-info', authMiddleware, async (req, res) => {
     try {
         const { rows } = await pool.query(
-            `SELECT referral_code, referred_by, new_signup_discount_used,
+            `SELECT id, name, referral_code, referred_by, new_signup_discount_used,
              commission_free_rides_remaining, discount_rides_remaining, discount_rides_percent
              FROM users WHERE id=$1`,
             [req.user.id]
         );
-        const info = rows[0] || {};
+        let info = rows[0] || {};
+
+        if (!info.referral_code) {
+            const newCode = generateReferralCode(info.name, info.id);
+            await pool.query('UPDATE users SET referral_code=$1 WHERE id=$2', [newCode, info.id]);
+            info.referral_code = newCode;
+        }
+
         info.new_signup_discount_available = !!(info.referred_by && !info.new_signup_discount_used);
         res.json(info);
     } catch(e) { res.status(500).json({ error: e.message }); }
@@ -386,7 +392,6 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
         let ride = rows[0];
 
         if (status === 'completed') {
-            // Snapshot pre-increment counts to detect "first ride ever" for referral triggers
             const riderBefore = await pool.query('SELECT total_rides, commission_free_rides_remaining FROM users WHERE id=$1', [req.user.id]);
             const passengerBefore = await pool.query('SELECT total_trips FROM users WHERE id=$1', [ride.passenger_id]);
 
