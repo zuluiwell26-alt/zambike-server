@@ -159,6 +159,23 @@ async function verifyMoneyUnifyPayment(transactionId) {
     }
 }
 
+async function settleCommission(userId) {
+    try {
+        const result = await pool.query('SELECT wallet_balance, commission_owed FROM users WHERE id=$1', [userId]);
+        const user = result.rows[0];
+        if (!user) return;
+        const wallet = parseFloat(user.wallet_balance || 0);
+        const owed = parseFloat(user.commission_owed || 0);
+        if (wallet > 0 && owed > 0) {
+            const offset = Math.min(wallet, owed);
+            await pool.query(
+                'UPDATE users SET wallet_balance = wallet_balance - $1, commission_owed = commission_owed - $1 WHERE id=$2',
+                [offset, userId]
+            );
+        }
+    } catch(e) { console.error('Settle commission error:', e); }
+}
+
 app.post('/auth/register', async (req, res) => {
     try {
         const { phone, name, role, password, bike_plate, vehicle_type, license_photo, referral_code } = req.body;
@@ -497,33 +514,48 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
                 ride.rider_earnings = finalRiderEarnings;
             }
 
-            await pool.query(
-                'UPDATE users SET total_rides=total_rides+1, total_earnings=total_earnings+$1, wallet_balance=wallet_balance+$1 WHERE id=$2',
-                [finalRiderEarnings, req.user.id]
-            );
+            await pool.query('UPDATE users SET total_rides=total_rides+1 WHERE id=$1', [req.user.id]);
             await pool.query('UPDATE users SET total_trips=total_trips+1 WHERE id=$1', [ride.passenger_id]);
+
+            const isCash = ride.payment_method === 'cash' || !ride.payment_method;
+
+            if (isCash) {
+                await pool.query(
+                    'UPDATE users SET commission_owed = commission_owed + $1, total_earnings = total_earnings + $2 WHERE id=$3',
+                    [finalZambikeCut, finalRiderEarnings, req.user.id]
+                );
+                await pool.query('UPDATE rides SET payment_status=$1 WHERE id=$2', ['paid', ride.id]);
+                ride.payment_status = 'paid';
+                await settleCommission(req.user.id);
+            } else {
+                await pool.query(
+                    'UPDATE users SET total_earnings=total_earnings+$1, wallet_balance=wallet_balance+$1 WHERE id=$2',
+                    [finalRiderEarnings, req.user.id]
+                );
+
+                if (ride.fare > 0 && MONEYUNIFY_AUTH_ID) {
+                    const passengerPhone = passengerBefore.rows[0]?.phone;
+                    const paymentResult = await initiateMoneyUnifyPayment(passengerPhone, ride.fare);
+                    if (!paymentResult.isError && paymentResult.data?.transaction_id) {
+                        await pool.query(
+                            'UPDATE rides SET payment_reference=$1, payment_status=$2 WHERE id=$3',
+                            [paymentResult.data.transaction_id, 'pending', ride.id]
+                        );
+                        ride.payment_reference = paymentResult.data.transaction_id;
+                        ride.payment_status = 'pending';
+                    } else {
+                        await pool.query('UPDATE rides SET payment_status=$1 WHERE id=$2', ['failed', ride.id]);
+                        ride.payment_status = 'failed';
+                    }
+                }
+                await settleCommission(req.user.id);
+            }
 
             if ((riderBefore.rows[0]?.total_rides || 0) === 0) {
                 await checkAndGrantReferrerReward(req.user.id);
             }
             if ((passengerBefore.rows[0]?.total_trips || 0) === 0) {
                 await checkAndGrantReferrerReward(ride.passenger_id);
-            }
-
-            if (ride.fare > 0 && MONEYUNIFY_AUTH_ID) {
-                const passengerPhone = passengerBefore.rows[0]?.phone;
-                const paymentResult = await initiateMoneyUnifyPayment(passengerPhone, ride.fare);
-                if (!paymentResult.isError && paymentResult.data?.transaction_id) {
-                    await pool.query(
-                        'UPDATE rides SET payment_reference=$1, payment_status=$2 WHERE id=$3',
-                        [paymentResult.data.transaction_id, 'pending', ride.id]
-                    );
-                    ride.payment_reference = paymentResult.data.transaction_id;
-                    ride.payment_status = 'pending';
-                } else {
-                    await pool.query('UPDATE rides SET payment_status=$1 WHERE id=$2', ['failed', ride.id]);
-                    ride.payment_status = 'failed';
-                }
             }
         }
 
@@ -563,8 +595,8 @@ app.get('/rider/ride-history', authMiddleware, async (req, res) => {
 app.get('/rider/wallet', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
-        const { rows } = await pool.query('SELECT wallet_balance FROM users WHERE id=$1', [req.user.id]);
-        res.json({ balance: rows[0]?.wallet_balance || 0 });
+        const { rows } = await pool.query('SELECT wallet_balance, commission_owed FROM users WHERE id=$1', [req.user.id]);
+        res.json({ balance: rows[0]?.wallet_balance || 0, commission_owed: rows[0]?.commission_owed || 0 });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -604,6 +636,8 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
         const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time, promo_code, stops } = req.body;
+
+        const finalPaymentMethod = payment_method === 'cash' ? 'cash' : 'cash';
 
         const stopsList = Array.isArray(stops) ? stops.slice(0, 2) : [];
         const distanceKm = calculateTotalRouteDistance(
@@ -670,7 +704,7 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
             [req.user.id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distanceKm.toFixed(2),
-             finalFare, finalZambikeCut, finalRiderEarnings, payment_method, vehicle_type || 'bike',
+             finalFare, finalZambikeCut, finalRiderEarnings, finalPaymentMethod, vehicle_type || 'bike',
              scheduled_time || null, appliedLabel, discountAmount, baseFare]
         );
 
@@ -773,11 +807,15 @@ app.get('/passenger/payment-status/:rideId', authMiddleware, async (req, res) =>
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
         const { rows } = await pool.query(
-            'SELECT payment_status, payment_reference, fare FROM rides WHERE id=$1 AND passenger_id=$2',
+            'SELECT payment_status, payment_reference, payment_method, fare FROM rides WHERE id=$1 AND passenger_id=$2',
             [req.params.rideId, req.user.id]
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Ride not found' });
         const ride = rows[0];
+
+        if (ride.payment_method === 'cash') {
+            return res.json({ payment_status: 'paid', fare: ride.fare });
+        }
 
         if (ride.payment_status === 'pending' && ride.payment_reference) {
             const verifyResult = await verifyMoneyUnifyPayment(ride.payment_reference);
@@ -923,6 +961,7 @@ app.get('/admin/riders', async (req, res) => {
         if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
         const { rows } = await pool.query(
             `SELECT id, phone, name, is_approved, is_online, is_active, rating, total_rides, created_at, vehicle_type, bike_plate,
+             commission_owed, wallet_balance,
              (license_photo IS NOT NULL) as has_license_photo
              FROM users WHERE role='rider' ORDER BY created_at DESC`
         );
@@ -1105,6 +1144,38 @@ app.post('/admin/debug-payment-test', async (req, res) => {
             authIdConfigured: !!MONEYUNIFY_AUTH_ID,
             rawResponse: result
         });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/riders-owing-commission', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { rows } = await pool.query(
+            `SELECT id, name, phone, commission_owed, wallet_balance
+             FROM users WHERE role='rider' AND commission_owed > 0
+             ORDER BY commission_owed DESC`
+        );
+        res.json({ riders: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/riders/:id/record-commission-payment', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { amount, note } = req.body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
+
+        await pool.query(
+            'INSERT INTO commission_payments (rider_id, amount, note) VALUES ($1,$2,$3)',
+            [req.params.id, amount, note || null]
+        );
+        await pool.query(
+            'UPDATE users SET commission_owed = GREATEST(commission_owed - $1, 0) WHERE id=$2',
+            [amount, req.params.id]
+        );
+        res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
