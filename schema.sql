@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS rides (
 );
 
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS vehicle_type TEXT DEFAULT 'bike';
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS scheduled_time TIMESTAMP;
 
 -- Ride chat messages
 CREATE TABLE IF NOT EXISTS ride_messages (
