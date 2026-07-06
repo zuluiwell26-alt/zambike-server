@@ -81,6 +81,17 @@ ALTER TABLE rides ADD COLUMN IF NOT EXISTS discount_amount NUMERIC DEFAULT 0;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS original_fare NUMERIC;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS used_commission_free BOOLEAN DEFAULT FALSE;
 
+-- Extra stops along a ride, between pickup and final destination
+CREATE TABLE IF NOT EXISTS ride_stops (
+    id SERIAL PRIMARY KEY,
+    ride_id INTEGER REFERENCES rides(id),
+    seq INTEGER NOT NULL,
+    lat NUMERIC(10,7) NOT NULL,
+    lng NUMERIC(10,7) NOT NULL,
+    address TEXT,
+    reached_at TIMESTAMP
+);
+
 -- Ride chat messages
 CREATE TABLE IF NOT EXISTS ride_messages (
     id SERIAL PRIMARY KEY,
