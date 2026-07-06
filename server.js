@@ -45,10 +45,13 @@ function calculateDistance(lat1, lng1, lat2, lng2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-async function calculateFare(distanceKm) {
+const VEHICLE_MULTIPLIERS = { bike: 1, car: 2, truck: 3.5 };
+
+async function calculateFare(distanceKm, vehicleType = 'bike') {
     const { rows } = await pool.query('SELECT * FROM fare_settings ORDER BY id DESC LIMIT 1');
     const settings = rows[0];
-    const fare = parseFloat(settings.base_fare) + (distanceKm * parseFloat(settings.per_km_rate));
+    const multiplier = VEHICLE_MULTIPLIERS[vehicleType] || 1;
+    const fare = (parseFloat(settings.base_fare) + (distanceKm * parseFloat(settings.per_km_rate))) * multiplier;
     const zambikeCut = fare * (parseFloat(settings.zambike_percentage) / 100);
     const riderEarnings = fare - zambikeCut;
     return {
@@ -74,13 +77,13 @@ async function sendPushNotification(token, title, body) {
 
 app.post('/auth/register', async (req, res) => {
     try {
-        const { phone, name, role, password, bike_plate } = req.body;
+        const { phone, name, role, password, bike_plate, vehicle_type } = req.body;
         if (!phone || !name || !role || !password)
             return res.status(400).json({ error: 'All fields required' });
         if (!['passenger', 'rider'].includes(role))
             return res.status(400).json({ error: 'Role must be passenger or rider' });
         if (role === 'rider' && !bike_plate)
-            return res.status(400).json({ error: 'Bike plate number required for riders' });
+            return res.status(400).json({ error: 'Vehicle plate number required for riders' });
 
         const existing = await pool.query('SELECT id FROM users WHERE phone = $1', [phone]);
         if (existing.rows.length > 0)
@@ -88,8 +91,8 @@ app.post('/auth/register', async (req, res) => {
 
         const passwordHash = await bcrypt.hash(password, 10);
         const { rows } = await pool.query(
-            'INSERT INTO users (phone, name, role, password_hash, bike_plate) VALUES ($1, $2, $3, $4, $5) RETURNING id, phone, name, role',
-            [phone, name, role, passwordHash, bike_plate || null]
+            'INSERT INTO users (phone, name, role, password_hash, bike_plate, vehicle_type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, phone, name, role',
+            [phone, name, role, passwordHash, bike_plate || null, role === 'rider' ? (vehicle_type || 'bike') : null]
         );
         const token = jwt.sign({ id: rows[0].id, role: rows[0].role }, JWT_SECRET, { expiresIn: '30d' });
         res.json({ success: true, user: rows[0], token });
@@ -112,7 +115,7 @@ app.post('/auth/login', async (req, res) => {
             success: true,
             token,
             user: { id: user.id, phone: user.phone, name: user.name, role: user.role,
-                    is_approved: user.is_approved, rating: user.rating }
+                    is_approved: user.is_approved, rating: user.rating, vehicle_type: user.vehicle_type }
         });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
@@ -190,6 +193,9 @@ app.get('/rider/nearby-requests', authMiddleware, async (req, res) => {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
         const { lat, lng } = req.query;
 
+        const riderInfo = await pool.query('SELECT vehicle_type FROM users WHERE id=$1', [req.user.id]);
+        const myVehicleType = riderInfo.rows[0]?.vehicle_type || 'bike';
+
         const { rows } = await pool.query(
             `SELECT * FROM (
                SELECT r.*, u.name as passenger_name, u.phone as passenger_phone,
@@ -197,11 +203,11 @@ app.get('/rider/nearby-requests', authMiddleware, async (req, res) => {
                 cos(radians(r.pickup_lng) - radians($2)) +
                 sin(radians($1)) * sin(radians(r.pickup_lat)))) AS calc_distance_km
                FROM rides r JOIN users u ON r.passenger_id = u.id
-               WHERE r.status = 'requested'
+               WHERE r.status = 'requested' AND r.vehicle_type = $3
              ) sub
              WHERE calc_distance_km < 15
              ORDER BY requested_at ASC`,
-            [lat, lng]
+            [lat, lng, myVehicleType]
         );
         res.json({ rides: rows });
     } catch(e) { res.status(500).json({ error: e.message }); }
@@ -289,30 +295,31 @@ app.get('/rider/ride-history', authMiddleware, async (req, res) => {
 app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
-        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method } = req.body;
+        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type } = req.body;
 
         const distanceKm = calculateDistance(pickup_lat, pickup_lng, dest_lat, dest_lng);
-        const { fare, zambikeCut, riderEarnings } = await calculateFare(distanceKm);
+        const { fare, zambikeCut, riderEarnings } = await calculateFare(distanceKm, vehicle_type || 'bike');
 
         const { rows } = await pool.query(
             `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distance_km, fare, zambike_cut,
-             rider_earnings, payment_method)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+             rider_earnings, payment_method, vehicle_type)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
             [req.user.id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distanceKm.toFixed(2),
-             fare, zambikeCut, riderEarnings, payment_method]
+             fare, zambikeCut, riderEarnings, payment_method, vehicle_type || 'bike']
         );
 
         const nearbyRiders = await pool.query(
             `SELECT push_token FROM users u
              JOIN rider_locations rl ON u.id = rl.rider_id
              WHERE u.role='rider' AND u.is_online=true AND u.is_approved=true AND u.is_active=true
+             AND u.vehicle_type=$3
              AND u.push_token IS NOT NULL
              AND (6371 * acos(cos(radians($1)) * cos(radians(rl.latitude)) *
                   cos(radians(rl.longitude) - radians($2)) +
                   sin(radians($1)) * sin(radians(rl.latitude)))) < 15`,
-            [pickup_lat, pickup_lng]
+            [pickup_lat, pickup_lng, vehicle_type || 'bike']
         );
         nearbyRiders.rows.forEach(r => {
             sendPushNotification(r.push_token, 'New ride nearby!', `Fare: K${fare}`);
@@ -419,9 +426,9 @@ app.post('/ride/rate/:rideId', authMiddleware, async (req, res) => {
 
 app.post('/fare-estimate', async (req, res) => {
     try {
-        const { pickup_lat, pickup_lng, dest_lat, dest_lng } = req.body;
+        const { pickup_lat, pickup_lng, dest_lat, dest_lng, vehicle_type } = req.body;
         const distanceKm = calculateDistance(pickup_lat, pickup_lng, dest_lat, dest_lng);
-        const { fare, zambikeCut, riderEarnings } = await calculateFare(distanceKm);
+        const { fare, zambikeCut, riderEarnings } = await calculateFare(distanceKm, vehicle_type || 'bike');
         res.json({ fare, distanceKm: distanceKm.toFixed(2), riderEarnings, zambikeCut });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -449,7 +456,7 @@ app.get('/admin/riders', async (req, res) => {
         const adminKey = req.headers['x-admin-key'];
         if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
         const { rows } = await pool.query(
-            `SELECT id, phone, name, is_approved, is_online, is_active, rating, total_rides, created_at
+            `SELECT id, phone, name, is_approved, is_online, is_active, rating, total_rides, created_at, vehicle_type
              FROM users WHERE role='rider' ORDER BY created_at DESC`
         );
         res.json({ riders: rows });
