@@ -75,9 +75,14 @@ async function sendPushNotification(token, title, body) {
     } catch(e) {}
 }
 
+function generateReferralCode(name, id) {
+    const clean = (name || 'ZED').replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 4) || 'ZED';
+    return clean + id;
+}
+
 app.post('/auth/register', async (req, res) => {
     try {
-        const { phone, name, role, password, bike_plate, vehicle_type, license_photo } = req.body;
+        const { phone, name, role, password, bike_plate, vehicle_type, license_photo, referral_code } = req.body;
         if (!phone || !name || !role || !password)
             return res.status(400).json({ error: 'All fields required' });
         if (!['passenger', 'rider'].includes(role))
@@ -91,13 +96,36 @@ app.post('/auth/register', async (req, res) => {
         if (existing.rows.length > 0)
             return res.status(400).json({ error: 'Phone number already registered' });
 
+        let referrerId = null;
+        if (referral_code) {
+            const referrer = await pool.query('SELECT id FROM users WHERE referral_code = $1', [referral_code.trim().toUpperCase()]);
+            if (referrer.rows.length === 0) {
+                return res.status(400).json({ error: 'Invalid referral code' });
+            }
+            referrerId = referrer.rows[0].id;
+        }
+
         const passwordHash = await bcrypt.hash(password, 10);
+        const initialFreeRides = referrerId ? 3 : 0;
         const { rows } = await pool.query(
-            'INSERT INTO users (phone, name, role, password_hash, bike_plate, vehicle_type, license_photo) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, phone, name, role',
-            [phone, name, role, passwordHash, bike_plate || null, role === 'rider' ? (vehicle_type || 'bike') : null, license_photo || null]
+            `INSERT INTO users (phone, name, role, password_hash, bike_plate, vehicle_type, license_photo, referred_by, free_rides_remaining)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, phone, name, role`,
+            [phone, name, role, passwordHash, bike_plate || null, role === 'rider' ? (vehicle_type || 'bike') : null,
+             license_photo || null, referrerId, initialFreeRides]
         );
+
+        const newUserId = rows[0].id;
+        const myReferralCode = generateReferralCode(name, newUserId);
+        await pool.query('UPDATE users SET referral_code=$1 WHERE id=$2', [myReferralCode, newUserId]);
+
+        if (referrerId) {
+            await pool.query('UPDATE users SET free_rides_remaining = free_rides_remaining + 3 WHERE id=$1', [referrerId]);
+            const referrer = await pool.query('SELECT push_token, name FROM users WHERE id=$1', [referrerId]);
+            sendPushNotification(referrer.rows[0]?.push_token, 'Referral bonus!', `${name} joined using your code. You earned 3 free rides!`);
+        }
+
         const token = jwt.sign({ id: rows[0].id, role: rows[0].role }, JWT_SECRET, { expiresIn: '30d' });
-        res.json({ success: true, user: rows[0], token });
+        res.json({ success: true, user: { ...rows[0], referral_code: myReferralCode }, token });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
@@ -117,9 +145,47 @@ app.post('/auth/login', async (req, res) => {
             success: true,
             token,
             user: { id: user.id, phone: user.phone, name: user.name, role: user.role,
-                    is_approved: user.is_approved, rating: user.rating, vehicle_type: user.vehicle_type }
+                    is_approved: user.is_approved, rating: user.rating, vehicle_type: user.vehicle_type,
+                    referral_code: user.referral_code, free_rides_remaining: user.free_rides_remaining }
         });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+app.get('/user/referral-info', authMiddleware, async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT referral_code, free_rides_remaining FROM users WHERE id=$1', [req.user.id]);
+        res.json(rows[0] || {});
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/promo/validate', authMiddleware, async (req, res) => {
+    try {
+        const { code, fare } = req.body;
+        if (!code) return res.status(400).json({ error: 'No code provided' });
+
+        const { rows } = await pool.query(
+            'SELECT * FROM promo_codes WHERE code=$1 AND is_active=true',
+            [code.trim().toUpperCase()]
+        );
+        if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired promo code' });
+
+        const promo = rows[0];
+        if (promo.expires_at && new Date(promo.expires_at) < new Date())
+            return res.status(400).json({ error: 'This promo code has expired' });
+        if (promo.max_uses && promo.uses_count >= promo.max_uses)
+            return res.status(400).json({ error: 'This promo code has reached its usage limit' });
+
+        let discount = promo.discount_type === 'percent'
+            ? fare * (parseFloat(promo.discount_value) / 100)
+            : parseFloat(promo.discount_value);
+        discount = Math.min(discount, fare);
+
+        res.json({
+            valid: true,
+            discount: Math.round(discount * 100) / 100,
+            newFare: Math.round((fare - discount) * 100) / 100,
+        });
+    } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/user/push-token', authMiddleware, async (req, res) => {
@@ -337,20 +403,63 @@ app.get('/rider/ride-history', authMiddleware, async (req, res) => {
 app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
-        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time } = req.body;
+        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time, promo_code, use_free_ride } = req.body;
 
         const distanceKm = calculateDistance(pickup_lat, pickup_lng, dest_lat, dest_lng);
-        const { fare, zambikeCut, riderEarnings } = await calculateFare(distanceKm, vehicle_type || 'bike');
+        const { fare: baseFare, zambikeCut: baseCut, riderEarnings: baseRiderEarnings } = await calculateFare(distanceKm, vehicle_type || 'bike');
+
+        let finalFare = baseFare;
+        let discountAmount = 0;
+        let appliedPromoCode = null;
+        let usedFreeRide = false;
+
+        const userInfo = await pool.query('SELECT free_rides_remaining FROM users WHERE id=$1', [req.user.id]);
+        const freeRidesLeft = userInfo.rows[0]?.free_rides_remaining || 0;
+
+        if (use_free_ride && freeRidesLeft > 0) {
+            finalFare = 0;
+            discountAmount = baseFare;
+            usedFreeRide = true;
+        } else if (promo_code) {
+            const promoResult = await pool.query(
+                'SELECT * FROM promo_codes WHERE code=$1 AND is_active=true',
+                [promo_code.trim().toUpperCase()]
+            );
+            if (promoResult.rows.length > 0) {
+                const promo = promoResult.rows[0];
+                const notExpired = !promo.expires_at || new Date(promo.expires_at) >= new Date();
+                const underLimit = !promo.max_uses || promo.uses_count < promo.max_uses;
+                if (notExpired && underLimit) {
+                    let discount = promo.discount_type === 'percent'
+                        ? baseFare * (parseFloat(promo.discount_value) / 100)
+                        : parseFloat(promo.discount_value);
+                    discount = Math.min(discount, baseFare);
+                    discountAmount = Math.round(discount * 100) / 100;
+                    finalFare = Math.round((baseFare - discount) * 100) / 100;
+                    appliedPromoCode = promo.code;
+                    await pool.query('UPDATE promo_codes SET uses_count = uses_count + 1 WHERE id=$1', [promo.id]);
+                }
+            }
+        }
+
+        const proportionalMultiplier = baseFare > 0 ? finalFare / baseFare : 0;
+        const finalZambikeCut = Math.round(baseCut * proportionalMultiplier * 100) / 100;
+        const finalRiderEarnings = Math.round((finalFare - finalZambikeCut) * 100) / 100;
 
         const { rows } = await pool.query(
             `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distance_km, fare, zambike_cut,
-             rider_earnings, payment_method, vehicle_type, scheduled_time)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+             rider_earnings, payment_method, vehicle_type, scheduled_time, promo_code, discount_amount, original_fare, used_free_ride)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
             [req.user.id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distanceKm.toFixed(2),
-             fare, zambikeCut, riderEarnings, payment_method, vehicle_type || 'bike', scheduled_time || null]
+             finalFare, finalZambikeCut, finalRiderEarnings, payment_method, vehicle_type || 'bike',
+             scheduled_time || null, appliedPromoCode, discountAmount, baseFare, usedFreeRide]
         );
+
+        if (usedFreeRide) {
+            await pool.query('UPDATE users SET free_rides_remaining = free_rides_remaining - 1 WHERE id=$1', [req.user.id]);
+        }
 
         const isImmediate = !scheduled_time || new Date(scheduled_time) <= new Date(Date.now() + 15 * 60000);
         if (isImmediate) {
@@ -366,11 +475,11 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
                 [pickup_lat, pickup_lng, vehicle_type || 'bike']
             );
             nearbyRiders.rows.forEach(r => {
-                sendPushNotification(r.push_token, 'New ride nearby!', `Fare: K${fare}`);
+                sendPushNotification(r.push_token, 'New ride nearby!', `Fare: K${finalFare}`);
             });
         }
 
-        res.json({ success: true, ride: rows[0], fare, distanceKm: distanceKm.toFixed(2) });
+        res.json({ success: true, ride: rows[0], fare: finalFare, originalFare: baseFare, discountAmount, distanceKm: distanceKm.toFixed(2) });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
@@ -591,6 +700,40 @@ app.post('/admin/fare-settings', async (req, res) => {
             'INSERT INTO fare_settings (base_fare, per_km_rate, zambike_percentage) VALUES ($1,$2,$3)',
             [base_fare, per_km_rate, zambike_percentage]
         );
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/promo-codes', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { rows } = await pool.query('SELECT * FROM promo_codes ORDER BY created_at DESC');
+        res.json({ codes: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/promo-codes', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { code, discount_type, discount_value, max_uses, expires_at } = req.body;
+        if (!code || !discount_type || !discount_value)
+            return res.status(400).json({ error: 'Code, type, and value are required' });
+        await pool.query(
+            `INSERT INTO promo_codes (code, discount_type, discount_value, max_uses, expires_at)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [code.trim().toUpperCase(), discount_type, discount_value, max_uses || null, expires_at || null]
+        );
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/promo-codes/:id/toggle', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        await pool.query('UPDATE promo_codes SET is_active = NOT is_active WHERE id=$1', [req.params.id]);
         res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
