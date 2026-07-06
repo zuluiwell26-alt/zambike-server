@@ -80,6 +80,29 @@ function generateReferralCode(name, id) {
     return clean + id;
 }
 
+// Called whenever a user completes their very first ride ever, to unlock whoever referred them
+async function checkAndGrantReferrerReward(userId) {
+    try {
+        const userResult = await pool.query('SELECT referred_by, referral_reward_granted FROM users WHERE id=$1', [userId]);
+        const user = userResult.rows[0];
+        if (!user || !user.referred_by || user.referral_reward_granted) return;
+
+        const referrerResult = await pool.query('SELECT id, role, push_token, name FROM users WHERE id=$1', [user.referred_by]);
+        const referrer = referrerResult.rows[0];
+        if (!referrer) return;
+
+        if (referrer.role === 'rider') {
+            await pool.query('UPDATE users SET commission_free_rides_remaining = commission_free_rides_remaining + 3 WHERE id=$1', [referrer.id]);
+            sendPushNotification(referrer.push_token, 'Referral bonus unlocked!', 'Your friend completed their first ride. You earned 3 commission-free rides!');
+        } else {
+            await pool.query('UPDATE users SET discount_rides_remaining = discount_rides_remaining + 1, discount_rides_percent = 15 WHERE id=$1', [referrer.id]);
+            sendPushNotification(referrer.push_token, 'Referral bonus unlocked!', 'Your friend completed their first ride. You earned 15% off your next ride!');
+        }
+
+        await pool.query('UPDATE users SET referral_reward_granted=true WHERE id=$1', [userId]);
+    } catch(e) { console.error('Referral reward error:', e); }
+}
+
 app.post('/auth/register', async (req, res) => {
     try {
         const { phone, name, role, password, bike_plate, vehicle_type, license_photo, referral_code } = req.body;
@@ -106,23 +129,16 @@ app.post('/auth/register', async (req, res) => {
         }
 
         const passwordHash = await bcrypt.hash(password, 10);
-        const initialFreeRides = referrerId ? 3 : 0;
         const { rows } = await pool.query(
-            `INSERT INTO users (phone, name, role, password_hash, bike_plate, vehicle_type, license_photo, referred_by, free_rides_remaining)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, phone, name, role`,
+            `INSERT INTO users (phone, name, role, password_hash, bike_plate, vehicle_type, license_photo, referred_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, phone, name, role`,
             [phone, name, role, passwordHash, bike_plate || null, role === 'rider' ? (vehicle_type || 'bike') : null,
-             license_photo || null, referrerId, initialFreeRides]
+             license_photo || null, referrerId]
         );
 
         const newUserId = rows[0].id;
         const myReferralCode = generateReferralCode(name, newUserId);
         await pool.query('UPDATE users SET referral_code=$1 WHERE id=$2', [myReferralCode, newUserId]);
-
-        if (referrerId) {
-            await pool.query('UPDATE users SET free_rides_remaining = free_rides_remaining + 3 WHERE id=$1', [referrerId]);
-            const referrer = await pool.query('SELECT push_token, name FROM users WHERE id=$1', [referrerId]);
-            sendPushNotification(referrer.rows[0]?.push_token, 'Referral bonus!', `${name} joined using your code. You earned 3 free rides!`);
-        }
 
         const token = jwt.sign({ id: rows[0].id, role: rows[0].role }, JWT_SECRET, { expiresIn: '30d' });
         res.json({ success: true, user: { ...rows[0], referral_code: myReferralCode }, token });
@@ -146,15 +162,22 @@ app.post('/auth/login', async (req, res) => {
             token,
             user: { id: user.id, phone: user.phone, name: user.name, role: user.role,
                     is_approved: user.is_approved, rating: user.rating, vehicle_type: user.vehicle_type,
-                    referral_code: user.referral_code, free_rides_remaining: user.free_rides_remaining }
+                    referral_code: user.referral_code }
         });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
 app.get('/user/referral-info', authMiddleware, async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT referral_code, free_rides_remaining FROM users WHERE id=$1', [req.user.id]);
-        res.json(rows[0] || {});
+        const { rows } = await pool.query(
+            `SELECT referral_code, referred_by, new_signup_discount_used,
+             commission_free_rides_remaining, discount_rides_remaining, discount_rides_percent
+             FROM users WHERE id=$1`,
+            [req.user.id]
+        );
+        const info = rows[0] || {};
+        info.new_signup_discount_available = !!(info.referred_by && !info.new_signup_discount_used);
+        res.json(info);
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -360,14 +383,41 @@ app.post('/rider/update-ride/:rideId', authMiddleware, async (req, res) => {
         );
         if (rows.length === 0) return res.status(400).json({ error: 'Ride not found' });
 
+        let ride = rows[0];
+
         if (status === 'completed') {
+            // Snapshot pre-increment counts to detect "first ride ever" for referral triggers
+            const riderBefore = await pool.query('SELECT total_rides, commission_free_rides_remaining FROM users WHERE id=$1', [req.user.id]);
+            const passengerBefore = await pool.query('SELECT total_trips FROM users WHERE id=$1', [ride.passenger_id]);
+
+            let finalZambikeCut = ride.zambike_cut;
+            let finalRiderEarnings = ride.rider_earnings;
+            const commissionFreeLeft = riderBefore.rows[0]?.commission_free_rides_remaining || 0;
+
+            if (commissionFreeLeft > 0) {
+                finalZambikeCut = 0;
+                finalRiderEarnings = ride.fare;
+                await pool.query('UPDATE users SET commission_free_rides_remaining = commission_free_rides_remaining - 1 WHERE id=$1', [req.user.id]);
+                await pool.query('UPDATE rides SET zambike_cut=$1, rider_earnings=$2, used_commission_free=true WHERE id=$3', [finalZambikeCut, finalRiderEarnings, ride.id]);
+                ride.zambike_cut = finalZambikeCut;
+                ride.rider_earnings = finalRiderEarnings;
+            }
+
             await pool.query(
                 'UPDATE users SET total_rides=total_rides+1, total_earnings=total_earnings+$1 WHERE id=$2',
-                [rows[0].rider_earnings, req.user.id]
+                [finalRiderEarnings, req.user.id]
             );
-            await pool.query('UPDATE users SET total_trips=total_trips+1 WHERE id=$1', [rows[0].passenger_id]);
+            await pool.query('UPDATE users SET total_trips=total_trips+1 WHERE id=$1', [ride.passenger_id]);
+
+            if ((riderBefore.rows[0]?.total_rides || 0) === 0) {
+                await checkAndGrantReferrerReward(req.user.id);
+            }
+            if ((passengerBefore.rows[0]?.total_trips || 0) === 0) {
+                await checkAndGrantReferrerReward(ride.passenger_id);
+            }
         }
-        res.json({ success: true, ride: rows[0] });
+
+        res.json({ success: true, ride });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -403,23 +453,35 @@ app.get('/rider/ride-history', authMiddleware, async (req, res) => {
 app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
-        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time, promo_code, use_free_ride } = req.body;
+        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time, promo_code } = req.body;
 
         const distanceKm = calculateDistance(pickup_lat, pickup_lng, dest_lat, dest_lng);
-        const { fare: baseFare, zambikeCut: baseCut, riderEarnings: baseRiderEarnings } = await calculateFare(distanceKm, vehicle_type || 'bike');
+        const { fare: baseFare, zambikeCut: baseCut } = await calculateFare(distanceKm, vehicle_type || 'bike');
 
         let finalFare = baseFare;
         let discountAmount = 0;
-        let appliedPromoCode = null;
-        let usedFreeRide = false;
+        let appliedLabel = null;
+        let consumeDiscountRide = false;
+        let consumeNewSignupDiscount = false;
 
-        const userInfo = await pool.query('SELECT free_rides_remaining FROM users WHERE id=$1', [req.user.id]);
-        const freeRidesLeft = userInfo.rows[0]?.free_rides_remaining || 0;
+        const userInfo = await pool.query(
+            'SELECT discount_rides_remaining, discount_rides_percent, referred_by, new_signup_discount_used FROM users WHERE id=$1',
+            [req.user.id]
+        );
+        const u = userInfo.rows[0] || {};
 
-        if (use_free_ride && freeRidesLeft > 0) {
-            finalFare = 0;
-            discountAmount = baseFare;
-            usedFreeRide = true;
+        if (u.discount_rides_remaining > 0 && u.discount_rides_percent > 0) {
+            const discount = Math.min(baseFare * (parseFloat(u.discount_rides_percent) / 100), baseFare);
+            discountAmount = Math.round(discount * 100) / 100;
+            finalFare = Math.round((baseFare - discount) * 100) / 100;
+            appliedLabel = 'REFERRAL_BONUS';
+            consumeDiscountRide = true;
+        } else if (u.referred_by && !u.new_signup_discount_used) {
+            const discount = Math.min(baseFare * 0.05, baseFare);
+            discountAmount = Math.round(discount * 100) / 100;
+            finalFare = Math.round((baseFare - discount) * 100) / 100;
+            appliedLabel = 'NEW_MEMBER_5';
+            consumeNewSignupDiscount = true;
         } else if (promo_code) {
             const promoResult = await pool.query(
                 'SELECT * FROM promo_codes WHERE code=$1 AND is_active=true',
@@ -436,7 +498,7 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
                     discount = Math.min(discount, baseFare);
                     discountAmount = Math.round(discount * 100) / 100;
                     finalFare = Math.round((baseFare - discount) * 100) / 100;
-                    appliedPromoCode = promo.code;
+                    appliedLabel = promo.code;
                     await pool.query('UPDATE promo_codes SET uses_count = uses_count + 1 WHERE id=$1', [promo.id]);
                 }
             }
@@ -449,16 +511,19 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
         const { rows } = await pool.query(
             `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distance_km, fare, zambike_cut,
-             rider_earnings, payment_method, vehicle_type, scheduled_time, promo_code, discount_amount, original_fare, used_free_ride)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+             rider_earnings, payment_method, vehicle_type, scheduled_time, promo_code, discount_amount, original_fare)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
             [req.user.id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distanceKm.toFixed(2),
              finalFare, finalZambikeCut, finalRiderEarnings, payment_method, vehicle_type || 'bike',
-             scheduled_time || null, appliedPromoCode, discountAmount, baseFare, usedFreeRide]
+             scheduled_time || null, appliedLabel, discountAmount, baseFare]
         );
 
-        if (usedFreeRide) {
-            await pool.query('UPDATE users SET free_rides_remaining = free_rides_remaining - 1 WHERE id=$1', [req.user.id]);
+        if (consumeDiscountRide) {
+            await pool.query('UPDATE users SET discount_rides_remaining = discount_rides_remaining - 1 WHERE id=$1', [req.user.id]);
+        }
+        if (consumeNewSignupDiscount) {
+            await pool.query('UPDATE users SET new_signup_discount_used = true WHERE id=$1', [req.user.id]);
         }
 
         const isImmediate = !scheduled_time || new Date(scheduled_time) <= new Date(Date.now() + 15 * 60000);
@@ -479,7 +544,7 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
             });
         }
 
-        res.json({ success: true, ride: rows[0], fare: finalFare, originalFare: baseFare, discountAmount, distanceKm: distanceKm.toFixed(2) });
+        res.json({ success: true, ride: rows[0], fare: finalFare, originalFare: baseFare, discountAmount, appliedLabel, distanceKm: distanceKm.toFixed(2) });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
