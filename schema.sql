@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS rides (
     status TEXT DEFAULT 'requested' CHECK (status IN (
         'requested', 'accepted', 'arriving', 'in_progress', 'completed', 'cancelled'
     )),
-    payment_method TEXT CHECK (payment_method IN ('airtel', 'mtn', 'cash')),
+    payment_method TEXT CHECK (payment_method IN ('airtel', 'mtn')),
     payment_status TEXT DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed')),
     payment_reference TEXT,
     requested_at TIMESTAMP DEFAULT NOW(),
@@ -81,6 +81,9 @@ ALTER TABLE rides ADD COLUMN IF NOT EXISTS promo_code TEXT;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS discount_amount NUMERIC DEFAULT 0;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS original_fare NUMERIC;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS used_commission_free BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE rides DROP CONSTRAINT IF EXISTS rides_payment_method_check;
+ALTER TABLE rides ADD CONSTRAINT rides_payment_method_check CHECK (payment_method IN ('airtel', 'mtn', 'cash'));
 
 -- Extra stops along a ride, between pickup and final destination
 CREATE TABLE IF NOT EXISTS ride_stops (
