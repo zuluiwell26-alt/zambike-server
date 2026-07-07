@@ -429,6 +429,35 @@
     </div>
   </section>
 
+  <section>
+    <div class="panel">
+      <div class="refresh-row">
+        <div>
+          <h2 style="margin-bottom:0;">Riders Owing Commission</h2>
+          <p class="desc" style="margin-bottom:0;">From cash rides. Record a payment once a rider sends you their owed commission via mobile money.</p>
+        </div>
+        <button class="ghost" onclick="loadCommissionOwed()">Refresh</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Rider</th>
+              <th>Phone</th>
+              <th>Owed</th>
+              <th>Wallet Balance</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="commissionOwedBody">
+            <tr><td colspan="5" style="color:var(--muted);">Connect above to load riders</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="log" id="commissionPaymentLog" style="display:none;"></div>
+    </div>
+  </section>
+
 </main>
 
 <footer>zambike-server · admin console</footer>
@@ -460,6 +489,7 @@ async function connect(){
     loadRiders();
     loadActiveRides();
     loadWithdrawals();
+    loadCommissionOwed();
   }catch(e){
     pill.textContent = 'unreachable';
     pill.className = 'status-pill off';
@@ -567,6 +597,64 @@ async function testPayment(){
     const data = await res.json();
     el.className = res.ok ? 'log ok' : 'log err';
     el.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    el.className = 'log err';
+    el.textContent = 'network error: ' + e.message;
+  }
+}
+
+async function loadCommissionOwed(){
+  const body = document.getElementById('commissionOwedBody');
+  body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">Loading…</td></tr>';
+  try{
+    const res = await fetch(API + '/admin/riders-owing-commission', { headers: { 'x-admin-key': KEY } });
+    const data = await res.json();
+    if(!res.ok){
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
+      return;
+    }
+    if(!data.riders || data.riders.length === 0){
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No riders owe commission right now</td></tr>';
+      return;
+    }
+    body.innerHTML = data.riders.map(r => `
+      <tr>
+        <td>${r.name}</td>
+        <td>${r.phone}</td>
+        <td style="color:var(--red);font-weight:700;">K${Number(r.commission_owed).toFixed(2)}</td>
+        <td>K${Number(r.wallet_balance).toFixed(2)}</td>
+        <td>
+          <button class="mini-btn" onclick="recordCommissionPayment(${r.id}, '${r.name}')">Record payment</button>
+        </td>
+      </tr>
+    `).join('');
+  }catch(e){
+    body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">network error</td></tr>';
+  }
+}
+
+async function recordCommissionPayment(riderId, riderName){
+  const amountStr = prompt('How much did ' + riderName + ' pay towards their commission owed? (K)');
+  if(!amountStr) return;
+  const amount = Number(amountStr);
+  if(!amount || amount <= 0){
+    alert('Invalid amount');
+    return;
+  }
+  const el = document.getElementById('commissionPaymentLog');
+  el.style.display = 'block';
+  el.className = 'log';
+  el.textContent = 'Recording…';
+  try{
+    const res = await fetch(API + '/admin/riders/' + riderId + '/record-commission-payment', {
+      method: 'POST',
+      headers: { 'x-admin-key': KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, note: 'Recorded via admin dashboard' })
+    });
+    const data = await res.json();
+    el.className = res.ok ? 'log ok' : 'log err';
+    el.textContent = res.ok ? ('Recorded K' + amount + ' payment for ' + riderName) : JSON.stringify(data);
+    loadCommissionOwed();
   }catch(e){
     el.className = 'log err';
     el.textContent = 'network error: ' + e.message;
