@@ -330,12 +330,21 @@
     <div class="panel-head">
       <div><h3>Danger zone</h3><div class="desc">Permanently erase all riders, passengers, ride history, and withdrawal records — cannot be undone</div></div>
     </div>
-    <div class="field" style="margin-bottom:12px;">
-      <label>Type DELETE to confirm</label>
-      <input id="resetConfirmInput" placeholder="DELETE" style="width:200px;">
+
+    <div id="dangerLocked">
+      <div class="field" style="margin-bottom:12px;">
+        <label>Security password</label>
+        <input id="dangerPassword" type="password" placeholder="Enter password to unlock" style="width:220px;">
+      </div>
+      <button class="ghost" onclick="unlockDangerZone()">🔒 Unlock</button>
+      <div class="log" id="dangerUnlockLog" style="display:none;"></div>
     </div>
-    <button class="danger" onclick="resetAllData()">Wipe all data</button>
-    <div class="log" id="resetLog" style="display:none;"></div>
+
+    <div id="dangerUnlocked" style="display:none;">
+      <p style="color:var(--muted); font-size:12.5px;">Unlocked for this session. This action cannot be undone.</p>
+      <button class="danger" onclick="resetAllData()">Wipe all data</button>
+      <div class="log" id="resetLog" style="display:none;"></div>
+    </div>
   </section>
 
 </main>
@@ -479,19 +488,23 @@ async function quickApprove(id){ await apiPost('/admin/approve-rider/' + id); cl
 async function quickSuspend(id){ await apiPost('/admin/suspend-user/' + id); closeRiderModal(); loadRiders(); }
 
 // ---------- Danger zone ----------
-async function resetAllData(){
-  const confirmText = document.getElementById('resetConfirmInput').value;
-  if(confirmText !== 'DELETE'){
-    showLog('resetLog', false, 'Type DELETE (exactly, all caps) to confirm.');
+const DANGER_PASSWORD = 'R54321Z';
+
+function unlockDangerZone(){
+  const entered = document.getElementById('dangerPassword').value;
+  if(entered !== DANGER_PASSWORD){
+    showLog('dangerUnlockLog', false, 'Incorrect password.');
     return;
   }
+  document.getElementById('dangerLocked').style.display = 'none';
+  document.getElementById('dangerUnlocked').style.display = 'block';
+}
+
+async function resetAllData(){
   if(!confirm('This permanently erases ALL riders, passengers, rides, and withdrawal history. This cannot be undone. Continue?')) return;
   const { ok, data } = await apiPost('/admin/reset-all-data');
   showLog('resetLog', ok, ok ? data.message : data);
-  if(ok){
-    document.getElementById('resetConfirmInput').value = '';
-    connect();
-  }
+  if(ok) connect();
 }
 
 // ---------- Active rides ----------
@@ -647,6 +660,13 @@ function showPage(id){
     l.classList.toggle('active', l.getAttribute('onclick') === `showPage('${id}'); return false;`);
   });
   window.scrollTo(0, 0);
+  if(id === 'danger'){
+    // Always re-lock on entry, so the password is required every single visit.
+    document.getElementById('dangerLocked').style.display = 'block';
+    document.getElementById('dangerUnlocked').style.display = 'none';
+    document.getElementById('dangerPassword').value = '';
+    document.getElementById('dangerUnlockLog').style.display = 'none';
+  }
 }
 showPage('overview');
 </script>
