@@ -122,9 +122,33 @@
   }
   .modal-overlay.show{display:flex;}
   .modal{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:22px; max-width:420px; width:90%;}
+  .modal.wide{max-width:520px;}
   .modal h4{font-family:'Space Grotesk'; margin:0 0 14px;}
   .modal img{max-width:100%; border-radius:10px; margin-top:10px;}
   .modal-close{float:right; cursor:pointer; color:var(--muted); font-size:13px;}
+
+  .rider-row{
+    display:flex; align-items:center; gap:12px; padding:10px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .rider-row:last-child{border-bottom:none;}
+  .rider-thumb{
+    width:38px; height:38px; border-radius:50%; object-fit:cover;
+    background:var(--surface-2); border:1px solid var(--line); flex-shrink:0;
+  }
+  .rider-thumb.placeholder{display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:15px;}
+  .rider-row-name{font-weight:600; font-size:13.5px;}
+  .rider-row-sub{color:var(--muted); font-size:11.5px; margin-top:1px;}
+  .rider-row-right{margin-left:auto; display:flex; align-items:center; gap:10px;}
+
+  .detail-photo{width:100%; max-height:220px; object-fit:cover; border-radius:10px; background:var(--surface-2);}
+  .detail-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0;}
+  .detail-item .l{color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; font-family:'JetBrains Mono';}
+  .detail-item .v{font-size:14px; font-weight:600; margin-top:3px;}
+  .detail-actions{display:flex; gap:10px; margin-top:16px;}
+
+  .danger-zone{border-color:var(--red) !important;}
+  .danger-zone h3{color:var(--red);}
 </style>
 </head>
 <body>
@@ -147,6 +171,7 @@
   <a class="nav-item" href="#" onclick="showPage('fare'); return false;"><span class="nav-icon">▣</span> Fare settings</a>
   <div class="nav-section">System</div>
   <a class="nav-item" href="#" onclick="showPage('payment-test'); return false;"><span class="nav-icon">⚙</span> Payment test</a>
+  <a class="nav-item" href="#" onclick="showPage('danger'); return false;" style="color:var(--red);"><span class="nav-icon">⚠</span> Danger zone</a>
 
   <div class="sidebar-foot">
     <div class="theme-toggle" onclick="toggleTheme()">
@@ -191,11 +216,8 @@
       <div><h3>Riders</h3><div class="desc">Every rider that has signed up, newest first</div></div>
       <button class="ghost" onclick="loadRiders()">Refresh</button>
     </div>
-    <div style="overflow-x:auto;">
-      <table>
-        <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Vehicle</th><th>Plate</th><th>Approved</th><th>Active</th><th>Rides</th><th>Action</th></tr></thead>
-        <tbody id="ridersBody"><tr><td colspan="9" class="empty-row">Connect above to load riders</td></tr></tbody>
-      </table>
+    <div id="ridersList">
+      <div class="empty-row">Connect above to load riders</div>
     </div>
   </section>
 
@@ -304,13 +326,25 @@
     <div class="log" id="testPaymentLog" style="display:none;"></div>
   </section>
 
+  <section class="panel danger-zone" id="danger">
+    <div class="panel-head">
+      <div><h3>Danger zone</h3><div class="desc">Permanently erase all riders, passengers, ride history, and withdrawal records — cannot be undone</div></div>
+    </div>
+    <div class="field" style="margin-bottom:12px;">
+      <label>Type DELETE to confirm</label>
+      <input id="resetConfirmInput" placeholder="DELETE" style="width:200px;">
+    </div>
+    <button class="danger" onclick="resetAllData()">Wipe all data</button>
+    <div class="log" id="resetLog" style="display:none;"></div>
+  </section>
+
 </main>
 
-<div class="modal-overlay" id="licenseModal">
-  <div class="modal">
-    <span class="modal-close" onclick="closeLicenseModal()">✕ Close</span>
-    <h4>Rider ID / license</h4>
-    <div id="licenseModalBody">Loading…</div>
+<div class="modal-overlay" id="riderModal">
+  <div class="modal wide">
+    <span class="modal-close" onclick="closeRiderModal()">✕ Close</span>
+    <h4>Rider details</h4>
+    <div id="riderModalBody">Loading…</div>
   </div>
 </div>
 
@@ -389,37 +423,76 @@ function showLog(id, ok, content){
 }
 
 // ---------- Riders ----------
+let ridersCache = [];
 async function loadRiders(){
-  const body = document.getElementById('ridersBody');
-  body.innerHTML = '<tr><td colspan="9" class="empty-row">Loading…</td></tr>';
+  const list = document.getElementById('ridersList');
+  list.innerHTML = '<div class="empty-row">Loading…</div>';
   const { ok, data } = await apiGet('/admin/riders');
-  if(!ok){ body.innerHTML = '<tr><td colspan="9" class="empty-row">' + JSON.stringify(data) + '</td></tr>'; return; }
-  if(!data.riders || data.riders.length === 0){ body.innerHTML = '<tr><td colspan="9" class="empty-row">No riders yet</td></tr>'; return; }
-  body.innerHTML = data.riders.map(r => `
-    <tr>
-      <td>${r.id}</td><td>${r.name}</td><td>${r.phone}</td><td>${r.vehicle_type || 'bike'}</td><td>${r.bike_plate || '—'}</td>
-      <td><span class="pill ${r.is_approved ? 'on' : 'pending'}">${r.is_approved ? 'approved' : 'pending'}</span></td>
-      <td><span class="pill ${r.is_active ? 'on' : 'off'}">${r.is_active ? 'active' : 'suspended'}</span></td>
-      <td>${r.total_rides}</td>
-      <td>
-        ${r.has_license_photo ? `<button class="mini ghost" onclick="viewLicense(${r.id})">View ID</button>` : '<span class="pill muted">No ID</span>'}
-        ${!r.is_approved ? `<button class="mini" onclick="quickApprove(${r.id})">Approve</button>` : ''}
-        ${r.is_active ? `<button class="mini danger" onclick="quickSuspend(${r.id})">Suspend</button>` : ''}
-      </td>
-    </tr>
+  if(!ok){ list.innerHTML = '<div class="empty-row">' + JSON.stringify(data) + '</div>'; return; }
+  if(!data.riders || data.riders.length === 0){ list.innerHTML = '<div class="empty-row">No riders yet</div>'; return; }
+  ridersCache = data.riders;
+  list.innerHTML = data.riders.map(r => `
+    <div class="rider-row">
+      <div class="rider-thumb placeholder">👤</div>
+      <div>
+        <div class="rider-row-name">${r.name}</div>
+        <div class="rider-row-sub">${r.is_approved ? 'Approved' : 'Pending approval'} · ${r.total_rides} rides</div>
+      </div>
+      <div class="rider-row-right">
+        <span class="pill ${r.is_active ? 'on' : 'off'}">${r.is_active ? 'active' : 'suspended'}</span>
+        <button class="mini ghost" onclick="openRiderModal(${r.id})">View</button>
+      </div>
+    </div>
   `).join('');
 }
-async function quickApprove(id){ await apiPost('/admin/approve-rider/' + id); loadRiders(); }
-async function quickSuspend(id){ await apiPost('/admin/suspend-user/' + id); loadRiders(); }
-async function viewLicense(id){
-  document.getElementById('licenseModal').classList.add('show');
-  const el = document.getElementById('licenseModalBody');
-  el.innerHTML = 'Loading…';
-  const { ok, data } = await apiGet('/admin/rider-license/' + id);
-  if(!ok){ el.innerHTML = JSON.stringify(data); return; }
-  el.innerHTML = '<img src="' + data.license_photo + '" />';
+
+function openRiderModal(id){
+  const r = ridersCache.find(x => x.id === id);
+  if(!r) return;
+  document.getElementById('riderModal').classList.add('show');
+  const el = document.getElementById('riderModalBody');
+  el.innerHTML = `
+    ${r.has_license_photo ? `<img class="detail-photo" id="riderDetailPhoto" src="" />` : ''}
+    <div class="detail-grid">
+      <div class="detail-item"><div class="l">Name</div><div class="v">${r.name}</div></div>
+      <div class="detail-item"><div class="l">Phone</div><div class="v">${r.phone}</div></div>
+      <div class="detail-item"><div class="l">Vehicle</div><div class="v">${r.vehicle_type || 'bike'}</div></div>
+      <div class="detail-item"><div class="l">Plate</div><div class="v">${r.bike_plate || '—'}</div></div>
+      <div class="detail-item"><div class="l">Rides completed</div><div class="v">${r.total_rides}</div></div>
+      <div class="detail-item"><div class="l">Wallet balance</div><div class="v">K${Number(r.wallet_balance || 0).toFixed(2)}</div></div>
+      <div class="detail-item"><div class="l">Commission owed</div><div class="v">K${Number(r.commission_owed || 0).toFixed(2)}</div></div>
+      <div class="detail-item"><div class="l">Status</div><div class="v"><span class="pill ${r.is_approved ? 'on' : 'pending'}">${r.is_approved ? 'approved' : 'pending'}</span> <span class="pill ${r.is_active ? 'on' : 'off'}">${r.is_active ? 'active' : 'suspended'}</span></div></div>
+    </div>
+    <div class="detail-actions">
+      ${!r.is_approved ? `<button onclick="quickApprove(${r.id})">Approve rider</button>` : ''}
+      ${r.is_active ? `<button class="danger" onclick="quickSuspend(${r.id})">Suspend rider</button>` : ''}
+    </div>
+  `;
+  if(r.has_license_photo){
+    apiGet('/admin/rider-license/' + r.id).then(({ ok, data }) => {
+      if(ok) document.getElementById('riderDetailPhoto').src = data.license_photo;
+    });
+  }
 }
-function closeLicenseModal(){ document.getElementById('licenseModal').classList.remove('show'); }
+function closeRiderModal(){ document.getElementById('riderModal').classList.remove('show'); }
+async function quickApprove(id){ await apiPost('/admin/approve-rider/' + id); closeRiderModal(); loadRiders(); }
+async function quickSuspend(id){ await apiPost('/admin/suspend-user/' + id); closeRiderModal(); loadRiders(); }
+
+// ---------- Danger zone ----------
+async function resetAllData(){
+  const confirmText = document.getElementById('resetConfirmInput').value;
+  if(confirmText !== 'DELETE'){
+    showLog('resetLog', false, 'Type DELETE (exactly, all caps) to confirm.');
+    return;
+  }
+  if(!confirm('This permanently erases ALL riders, passengers, rides, and withdrawal history. This cannot be undone. Continue?')) return;
+  const { ok, data } = await apiPost('/admin/reset-all-data');
+  showLog('resetLog', ok, ok ? data.message : data);
+  if(ok){
+    document.getElementById('resetConfirmInput').value = '';
+    connect();
+  }
+}
 
 // ---------- Active rides ----------
 async function loadActiveRides(){
