@@ -85,7 +85,9 @@
   section.panel{
     background:var(--surface); border:1px solid var(--line); border-radius:14px;
     padding:22px; margin-bottom:20px; scroll-margin-top:20px;
+    display:none;
   }
+  section.panel.page-active{ display:block; }
   .panel-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-wrap:wrap; gap:10px;}
   .panel h3{font-family:'Space Grotesk'; font-size:15.5px; margin:0;}
   .panel .desc{color:var(--muted); font-size:12px; margin:2px 0 16px;}
@@ -133,18 +135,18 @@
     <div><h1>Zambike</h1><span>ADMIN</span></div>
   </div>
 
-  <a class="nav-item active" href="#overview"><span class="nav-icon">◈</span> Overview</a>
+  <a class="nav-item active" href="#" onclick="showPage('overview'); return false;"><span class="nav-icon">◈</span> Overview</a>
   <div class="nav-section">Operations</div>
-  <a class="nav-item" href="#riders"><span class="nav-icon">◍</span> Riders</a>
-  <a class="nav-item" href="#active-rides"><span class="nav-icon">◉</span> Active rides</a>
-  <a class="nav-item" href="#unpaid"><span class="nav-icon">◎</span> Unpaid rides</a>
+  <a class="nav-item" href="#" onclick="showPage('riders'); return false;"><span class="nav-icon">◍</span> Riders</a>
+  <a class="nav-item" href="#" onclick="showPage('active-rides'); return false;"><span class="nav-icon">◉</span> Active rides</a>
+  <a class="nav-item" href="#" onclick="showPage('unpaid'); return false;"><span class="nav-icon">◎</span> Unpaid rides</a>
   <div class="nav-section">Finance</div>
-  <a class="nav-item" href="#withdrawals"><span class="nav-icon">◆</span> Payouts</a>
-  <a class="nav-item" href="#commission"><span class="nav-icon">◇</span> Commission owed</a>
-  <a class="nav-item" href="#promo"><span class="nav-icon">▤</span> Promo codes</a>
-  <a class="nav-item" href="#fare"><span class="nav-icon">▣</span> Fare settings</a>
+  <a class="nav-item" href="#" onclick="showPage('withdrawals'); return false;"><span class="nav-icon">◆</span> Payouts</a>
+  <a class="nav-item" href="#" onclick="showPage('commission'); return false;"><span class="nav-icon">◇</span> Commission owed</a>
+  <a class="nav-item" href="#" onclick="showPage('promo'); return false;"><span class="nav-icon">▤</span> Promo codes</a>
+  <a class="nav-item" href="#" onclick="showPage('fare'); return false;"><span class="nav-icon">▣</span> Fare settings</a>
   <div class="nav-section">System</div>
-  <a class="nav-item" href="#payment-test"><span class="nav-icon">⚙</span> Payment test</a>
+  <a class="nav-item" href="#" onclick="showPage('payment-test'); return false;"><span class="nav-icon">⚙</span> Payment test</a>
 
   <div class="sidebar-foot">
     <div class="theme-toggle" onclick="toggleTheme()">
@@ -563,14 +565,17 @@ async function testPayment(){
   showLog('testPaymentLog', ok, JSON.stringify(data, null, 2));
 }
 
-// ---------- Sidebar active-link highlighting on scroll ----------
-const sections = document.querySelectorAll('main section[id]');
-const navLinks = document.querySelectorAll('.nav-item');
-window.addEventListener('scroll', () => {
-  let current = 'overview';
-  sections.forEach(s => { if (window.scrollY >= s.offsetTop - 100) current = s.id; });
-  navLinks.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + current));
-});
+// ---------- Page switching ----------
+function showPage(id){
+  document.querySelectorAll('main section.panel').forEach(s => {
+    s.classList.toggle('page-active', s.id === id);
+  });
+  document.querySelectorAll('.nav-item').forEach(l => {
+    l.classList.toggle('active', l.getAttribute('onclick') === `showPage('${id}'); return false;`);
+  });
+  window.scrollTo(0, 0);
+}
+showPage('overview');
 </script>
 </body>
 </html>
