@@ -955,6 +955,27 @@ app.post('/admin/suspend-user/:userId', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Permanently deletes ALL users, riders, passengers, rides, ratings, withdrawal
+// requests, commission payments, and payment records — a full reset back to empty.
+// Promo codes and fare settings are left untouched (those are configuration, not user data).
+app.post('/admin/reset-all-data', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+
+        // TRUNCATE ... CASCADE wipes the users table and automatically follows every
+        // foreign key that points back to it (rides, ride_stops, ride_messages,
+        // ratings, withdrawal_requests, commission_payments, payments, rider_locations).
+        // RESTART IDENTITY resets auto-increment IDs back to 1, so new signups start clean.
+        await pool.query('TRUNCATE TABLE users RESTART IDENTITY CASCADE');
+
+        res.json({ success: true, message: 'All rider, passenger, and ride data has been wiped.' });
+    } catch(e) {
+        console.error(e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/admin/riders', async (req, res) => {
     try {
         const adminKey = req.headers['x-admin-key'];
