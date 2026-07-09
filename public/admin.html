@@ -1,797 +1,576 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zambike — Admin</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<title>Zambike Admin</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#0E1412;
-    --panel:#151D1A;
-    --panel-2:#1B2521;
-    --line:#26332D;
-    --text:#EAEFEC;
-    --muted:#8FA098;
-    --green:#3DDC84;
-    --orange:#F2994A;
-    --red:#E5484D;
-    --radius:10px;
+  :root[data-theme="dark"]{
+    --bg:#0B0F0D; --surface:#12161A; --surface-2:#191F24; --line:#262B33;
+    --text:#ECEDEE; --muted:#8B93A1;
+    --accent:#3B82F6; --accent-soft:rgba(59,130,246,0.10); --accent-text:#7FB0FA;
+    --amber:#F2994A; --amber-soft:rgba(242,153,74,0.10);
+    --red:#E5484D; --red-soft:rgba(229,72,77,0.10);
+    --shadow:0 8px 24px rgba(0,0,0,0.35);
+  }
+  :root[data-theme="light"]{
+    --bg:#F5F6F8; --surface:#FFFFFF; --surface-2:#F0F2F5; --line:#E2E5EA;
+    --text:#161A20; --muted:#6B7280;
+    --accent:#2563EB; --accent-soft:rgba(37,99,235,0.08); --accent-text:#1D4ED8;
+    --amber:#B8641F; --amber-soft:rgba(184,100,31,0.08);
+    --red:#C13A3F; --red-soft:rgba(193,58,63,0.08);
+    --shadow:0 8px 24px rgba(20,20,30,0.06);
   }
   *{box-sizing:border-box;}
-  body{
-    margin:0;
-    background:var(--bg);
-    color:var(--text);
-    font-family:'Inter',sans-serif;
-    min-height:100vh;
-  }
-  .route-rule{
-    height:1px;
-    background-image:repeating-linear-gradient(90deg,var(--line) 0 6px, transparent 6px 12px);
-  }
-  header{
-    padding:22px 20px 18px;
-    border-bottom:1px solid var(--line);
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:16px;
-    flex-wrap:wrap;
-  }
-  .brand{display:flex;align-items:center;gap:10px;}
-  .brand .mark{
-    width:34px;height:34px;border-radius:8px;
-    background:linear-gradient(135deg,var(--green),#1E9A5A);
-    display:flex;align-items:center;justify-content:center;
-    font-family:'Space Grotesk',sans-serif;font-weight:700;color:#06140C;font-size:16px;
-  }
-  .brand h1{
-    font-family:'Space Grotesk',sans-serif;
-    font-size:19px;font-weight:600;margin:0;letter-spacing:-0.01em;
-  }
-  .brand span{color:var(--muted);font-size:12px;display:block;margin-top:1px;font-family:'JetBrains Mono',monospace;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; display:flex; transition:background .2s, color .2s;}
+  ::selection{background:var(--accent-soft);}
 
-  .auth{display:flex;gap:8px;align-items:center;}
-  .auth input{
-    background:var(--panel-2);
-    border:1px solid var(--line);
-    color:var(--text);
-    padding:9px 12px;
-    border-radius:8px;
-    font-family:'JetBrains Mono',monospace;
-    font-size:13px;
-    width:200px;
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    width:224px; min-height:100vh; background:var(--surface); border-right:1px solid var(--line);
+    padding:20px 12px; position:sticky; top:0; height:100vh; display:flex; flex-direction:column;
   }
-  .auth input:focus{outline:none;border-color:var(--green);}
+  .brand{display:flex; align-items:center; gap:10px; padding:6px 8px 20px;}
+  .brand .mark{width:32px; height:32px; border-radius:8px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-family:'Space Grotesk'; font-weight:700; color:#fff; font-size:15px; flex-shrink:0;}
+  .brand h1{font-family:'Space Grotesk'; font-size:15.5px; margin:0; font-weight:700;}
+  .brand span{color:var(--muted); font-size:10px; font-family:'JetBrains Mono';}
+
+  .nav-section{color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.07em; margin:16px 10px 6px; font-family:'JetBrains Mono';}
+  .nav-item{display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; color:var(--muted); font-size:13.5px; font-weight:500; cursor:pointer; text-decoration:none; margin-bottom:1px;}
+  .nav-item.active{background:var(--accent-soft); color:var(--accent-text); font-weight:600;}
+  .nav-item:hover:not(.active){background:var(--surface-2); color:var(--text);}
+  .nav-icon{width:16px; text-align:center; font-size:13px;}
+
+  .sidebar-foot{margin-top:auto; padding-top:14px; border-top:1px solid var(--line);}
+  .theme-toggle{
+    display:flex; align-items:center; justify-content:space-between; width:100%;
+    background:var(--surface-2); border:1px solid var(--line); border-radius:9px;
+    padding:8px 12px; color:var(--text); font-size:12.5px; cursor:pointer;
+  }
+  .conn-dot{width:8px; height:8px; border-radius:50%; background:var(--muted); display:inline-block; margin-right:6px;}
+  .conn-dot.live{background:var(--accent);}
+  .conn-status{font-size:11px; color:var(--muted); font-family:'JetBrains Mono'; margin-top:10px; padding:0 2px;}
+
+  /* ---------- Main ---------- */
+  main{flex:1; padding:26px 34px 80px; max-width:1300px;}
+  .topbar{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:22px; gap:16px; flex-wrap:wrap;}
+  .topbar h2{font-family:'Space Grotesk'; font-size:22px; margin:0; font-weight:700;}
+  .topbar .sub{color:var(--muted); font-size:12.5px; margin-top:4px;}
+
+  .conn-form{display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
+  input, textarea{
+    background:var(--surface-2); border:1px solid var(--line); color:var(--text);
+    padding:9px 12px; border-radius:8px; font-family:'Inter',sans-serif; font-size:13px;
+  }
+  input:focus, textarea:focus{outline:none; border-color:var(--accent);}
+  input[type="password"]{font-family:'JetBrains Mono';}
+
   button{
-    background:var(--green);
-    color:#06140C;
-    border:none;
-    padding:9px 16px;
-    border-radius:8px;
-    font-family:'Inter',sans-serif;
-    font-weight:600;
-    font-size:13px;
-    cursor:pointer;
+    background:var(--accent); color:#fff; border:none; padding:9px 16px; border-radius:8px;
+    font-family:'Inter',sans-serif; font-weight:600; font-size:13px; cursor:pointer;
   }
   button:hover{filter:brightness(1.08);}
-  button.ghost{
-    background:transparent;
-    border:1px solid var(--line);
-    color:var(--text);
-  }
-  button.danger{background:var(--red);color:#fff;}
-  button:disabled{opacity:0.4;cursor:not-allowed;}
+  button.ghost{background:transparent; border:1px solid var(--line); color:var(--text);}
+  button.danger{background:var(--red); color:#fff;}
+  button:disabled{opacity:.4; cursor:not-allowed;}
+  button.mini{padding:5px 10px; font-size:11.5px; border-radius:6px; margin-right:6px;}
 
-  .status-pill{
-    font-size:11px;
-    font-family:'JetBrains Mono',monospace;
-    padding:4px 9px;
-    border-radius:20px;
-    border:1px solid var(--line);
-    color:var(--muted);
-  }
-  .status-pill.live{color:var(--green);border-color:rgba(61,220,132,0.35);background:rgba(61,220,132,0.06);}
-  .status-pill.off{color:var(--red);border-color:rgba(229,72,77,0.35);background:rgba(229,72,77,0.06);}
+  .kpi-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px;}
+  .kpi{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px 18px;}
+  .kpi .l{color:var(--muted); font-size:11.5px; margin-bottom:8px;}
+  .kpi .n{font-family:'Space Grotesk'; font-size:24px; font-weight:700;}
+  .kpi .n.accent{color:var(--accent-text);}
 
-  main{max-width:1000px;margin:0 auto;padding:28px 20px 60px;}
+  section.panel{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:22px; margin-bottom:20px; scroll-margin-top:20px;
+  }
+  .panel-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-wrap:wrap; gap:10px;}
+  .panel h3{font-family:'Space Grotesk'; font-size:15.5px; margin:0;}
+  .panel .desc{color:var(--muted); font-size:12px; margin:2px 0 16px;}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;}
+  .field{display:flex; flex-direction:column; gap:5px;}
+  .field label{font-size:11px; color:var(--muted); font-family:'JetBrains Mono';}
+  .field input{width:160px;}
 
-  .eyebrow{
-    font-family:'JetBrains Mono',monospace;
-    font-size:11px;
-    color:var(--muted);
-    text-transform:uppercase;
-    letter-spacing:0.08em;
-    margin:0 0 10px;
-  }
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  th{text-align:left; color:var(--muted); font-family:'JetBrains Mono'; font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:9px 10px; border-bottom:1px solid var(--line);}
+  td{padding:11px 10px; border-bottom:1px solid var(--line); vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
 
-  .stats-grid{
-    display:grid;
-    grid-template-columns:repeat(4,1fr);
-    gap:12px;
-    margin-bottom:34px;
-  }
-  @media (max-width:700px){.stats-grid{grid-template-columns:repeat(2,1fr);}}
-  .stat-card{
-    background:var(--panel);
-    border:1px solid var(--line);
-    border-radius:var(--radius);
-    padding:16px;
-  }
-  .stat-card .n{
-    font-family:'Space Grotesk',sans-serif;
-    font-size:28px;
-    font-weight:700;
-    line-height:1;
-  }
-  .stat-card .l{
-    color:var(--muted);
-    font-size:12px;
-    margin-top:6px;
-  }
-  .stat-card.earn .n{color:var(--green);}
-
-  section{margin-bottom:30px;}
-  .panel{
-    background:var(--panel);
-    border:1px solid var(--line);
-    border-radius:var(--radius);
-    padding:18px;
-  }
-  .panel h2{
-    font-family:'Space Grotesk',sans-serif;
-    font-size:15px;
-    font-weight:600;
-    margin:0 0 4px;
-  }
-  .panel p.desc{color:var(--muted);font-size:12.5px;margin:0 0 16px;line-height:1.5;}
-
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
-  .field{display:flex;flex-direction:column;gap:5px;}
-  .field label{font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
-  .field input{
-    background:var(--panel-2);
-    border:1px solid var(--line);
-    color:var(--text);
-    padding:9px 11px;
-    border-radius:8px;
-    font-size:13px;
-    width:150px;
-  }
-  .field input:focus{outline:none;border-color:var(--green);}
+  .pill{font-size:10.5px; font-weight:600; font-family:'JetBrains Mono'; padding:3px 9px; border-radius:20px; display:inline-block;}
+  .pill.on{color:var(--accent-text); background:var(--accent-soft);}
+  .pill.pending{color:var(--amber); background:var(--amber-soft);}
+  .pill.off{color:var(--red); background:var(--red-soft);}
+  .pill.muted{color:var(--muted); background:var(--surface-2);}
 
   .log{
-    margin-top:14px;
-    font-family:'JetBrains Mono',monospace;
-    font-size:12px;
-    color:var(--muted);
-    padding:10px 12px;
-    background:var(--panel-2);
-    border-radius:8px;
-    border:1px solid var(--line);
-    min-height:20px;
-    white-space:pre-wrap;
-    word-break:break-all;
+    margin-top:14px; font-family:'JetBrains Mono'; font-size:12px; color:var(--muted);
+    padding:10px 12px; background:var(--surface-2); border-radius:8px; border:1px solid var(--line);
+    min-height:20px; white-space:pre-wrap; word-break:break-all;
   }
-  .log.ok{color:var(--green);}
+  .log.ok{color:var(--accent-text);}
   .log.err{color:var(--red);}
+  .empty-row{color:var(--muted); font-size:12.5px; padding:16px 0; text-align:center;}
 
-  .gap-note{
-    display:flex;
-    gap:10px;
-    align-items:flex-start;
-    background:rgba(242,153,74,0.07);
-    border:1px solid rgba(242,153,74,0.3);
-    border-radius:8px;
-    padding:12px 14px;
-    font-size:12.5px;
-    color:#F2B979;
-    line-height:1.5;
+  .modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6);
+    align-items:center; justify-content:center; z-index:50;
   }
-  .gap-note b{color:var(--orange);}
-
-  table{width:100%;border-collapse:collapse;font-size:12.5px;}
-  th{
-    text-align:left;
-    color:var(--muted);
-    font-family:'JetBrains Mono',monospace;
-    font-size:10.5px;
-    text-transform:uppercase;
-    letter-spacing:0.05em;
-    padding:8px 10px;
-    border-bottom:1px solid var(--line);
-  }
-  td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle;}
-  tr:last-child td{border-bottom:none;}
-  .badge{
-    display:inline-block;
-    font-size:11px;
-    font-family:'JetBrains Mono',monospace;
-    padding:3px 8px;
-    border-radius:20px;
-    border:1px solid var(--line);
-  }
-  .badge.yes{color:var(--green);border-color:rgba(61,220,132,0.35);background:rgba(61,220,132,0.06);}
-  .badge.no{color:var(--muted);}
-  .badge.off{color:var(--red);border-color:rgba(229,72,77,0.35);background:rgba(229,72,77,0.06);}
-  .mini-btn{
-    padding:5px 10px;
-    font-size:11px;
-    border-radius:6px;
-    margin-right:6px;
-  }
-  .refresh-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
-  .refresh-row button{padding:6px 12px;font-size:12px;}
-
-  footer{
-    text-align:center;
-    color:var(--muted);
-    font-size:11px;
-    font-family:'JetBrains Mono',monospace;
-    padding:20px;
-  }
+  .modal-overlay.show{display:flex;}
+  .modal{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:22px; max-width:420px; width:90%;}
+  .modal h4{font-family:'Space Grotesk'; margin:0 0 14px;}
+  .modal img{max-width:100%; border-radius:10px; margin-top:10px;}
+  .modal-close{float:right; cursor:pointer; color:var(--muted); font-size:13px;}
 </style>
 </head>
 <body>
 
-<header>
+<div class="sidebar">
   <div class="brand">
     <div class="mark">Z</div>
-    <div>
-      <h1>Zambike Admin</h1>
-      <span>login-pool → ride ops</span>
+    <div><h1>Zambike</h1><span>ADMIN</span></div>
+  </div>
+
+  <a class="nav-item active" href="#overview"><span class="nav-icon">◈</span> Overview</a>
+  <div class="nav-section">Operations</div>
+  <a class="nav-item" href="#riders"><span class="nav-icon">◍</span> Riders</a>
+  <a class="nav-item" href="#active-rides"><span class="nav-icon">◉</span> Active rides</a>
+  <a class="nav-item" href="#unpaid"><span class="nav-icon">◎</span> Unpaid rides</a>
+  <div class="nav-section">Finance</div>
+  <a class="nav-item" href="#withdrawals"><span class="nav-icon">◆</span> Payouts</a>
+  <a class="nav-item" href="#commission"><span class="nav-icon">◇</span> Commission owed</a>
+  <a class="nav-item" href="#promo"><span class="nav-icon">▤</span> Promo codes</a>
+  <a class="nav-item" href="#fare"><span class="nav-icon">▣</span> Fare settings</a>
+  <div class="nav-section">System</div>
+  <a class="nav-item" href="#payment-test"><span class="nav-icon">⚙</span> Payment test</a>
+
+  <div class="sidebar-foot">
+    <div class="theme-toggle" onclick="toggleTheme()">
+      <span id="themeLabel">🌙 Dark mode</span>
+      <span id="themeSwitchIcon">→</span>
     </div>
+    <div class="conn-status"><span class="conn-dot" id="connDot"></span><span id="connText">not connected</span></div>
   </div>
-  <div class="auth">
-    <input id="apiUrl" type="text" value="https://zambike-server-production.up.railway.app" placeholder="API base URL">
-    <input id="adminKey" type="password" placeholder="Admin key">
-    <button id="connectBtn" onclick="connect()">Connect</button>
-    <span id="connStatus" class="status-pill off">not connected</span>
-  </div>
-</header>
+</div>
 
 <main>
 
-  <section>
-    <p class="eyebrow">Live totals</p>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="n" id="statRiders">—</div><div class="l">Total riders</div></div>
-      <div class="stat-card"><div class="n" id="statPassengers">—</div><div class="l">Total passengers</div></div>
-      <div class="stat-card"><div class="n" id="statRides">—</div><div class="l">Completed rides</div></div>
-      <div class="stat-card earn"><div class="n" id="statEarnings">—</div><div class="l">Zambike earnings (K)</div></div>
+  <section class="panel" id="overview">
+    <div class="panel-head">
+      <div>
+        <h2 style="font-family:'Space Grotesk'; margin:0; font-size:20px;">Connection</h2>
+        <div class="desc">Point this dashboard at your server</div>
+      </div>
+    </div>
+    <div class="conn-form">
+      <div class="field">
+        <label>API BASE URL</label>
+        <input id="apiUrl" type="text" value="https://zambike-server-production.up.railway.app" style="width:340px;">
+      </div>
+      <div class="field">
+        <label>ADMIN KEY</label>
+        <input id="adminKey" type="password" placeholder="Admin key" style="width:200px;">
+      </div>
+      <button onclick="connect()">Connect</button>
+    </div>
+
+    <div class="kpi-grid" style="margin-top:22px;">
+      <div class="kpi"><div class="l">Total riders</div><div class="n" id="statRiders">—</div></div>
+      <div class="kpi"><div class="l">Total passengers</div><div class="n" id="statPassengers">—</div></div>
+      <div class="kpi"><div class="l">Completed rides</div><div class="n" id="statRides">—</div></div>
+      <div class="kpi"><div class="l">Zambike earnings</div><div class="n accent" id="statEarnings">K—</div></div>
     </div>
   </section>
 
-  <div class="route-rule" style="margin-bottom:30px;"></div>
-
-  <section>
-    <div class="panel">
-      <h2>Approve rider</h2>
-      <p class="desc">Approves a rider so they can go online and accept rides. Requires the rider's user ID.</p>
-      <div class="row">
-        <div class="field">
-          <label>USER ID</label>
-          <input type="number" id="approveId" placeholder="e.g. 14">
-        </div>
-        <button onclick="approveRider()">Approve</button>
-      </div>
-      <div class="log" id="approveLog">waiting</div>
+  <section class="panel" id="riders">
+    <div class="panel-head">
+      <div><h3>Riders</h3><div class="desc">Every rider that has signed up, newest first</div></div>
+      <button class="ghost" onclick="loadRiders()">Refresh</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Vehicle</th><th>Plate</th><th>Approved</th><th>Active</th><th>Rides</th><th>Action</th></tr></thead>
+        <tbody id="ridersBody"><tr><td colspan="9" class="empty-row">Connect above to load riders</td></tr></tbody>
+      </table>
     </div>
   </section>
 
-  <section>
-    <div class="panel">
-      <h2>Suspend user</h2>
-      <p class="desc">Deactivates a passenger or rider account. They will not be able to log in until reactivated directly in the database.</p>
-      <div class="row">
-        <div class="field">
-          <label>USER ID</label>
-          <input type="number" id="suspendId" placeholder="e.g. 14">
-        </div>
-        <button class="danger" onclick="suspendUser()">Suspend</button>
-      </div>
-      <div class="log" id="suspendLog">waiting</div>
+  <section class="panel" id="active-rides">
+    <div class="panel-head">
+      <div><h3>Active rides</h3><div class="desc">Rides not yet completed or cancelled</div></div>
+      <button class="ghost" onclick="loadActiveRides()">Refresh</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>ID</th><th>Passenger</th><th>Status</th><th>Requested</th><th>Action</th></tr></thead>
+        <tbody id="activeRidesBody"><tr><td colspan="5" class="empty-row">Connect above to load rides</td></tr></tbody>
+      </table>
     </div>
   </section>
 
-  <section>
-    <div class="panel">
-      <h2>Fare settings</h2>
-      <p class="desc">Adds a new fare row — the server always reads the most recent one. Leave a field blank to keep it unset.</p>
-      <div class="row">
-        <div class="field">
-          <label>BASE FARE (K)</label>
-          <input type="number" id="baseFare" placeholder="10.00" step="0.01">
-        </div>
-        <div class="field">
-          <label>PER KM (K)</label>
-          <input type="number" id="perKm" placeholder="5.00" step="0.01">
-        </div>
-        <div class="field">
-          <label>ZAMBIKE %</label>
-          <input type="number" id="pct" placeholder="10">
-        </div>
-        <button onclick="updateFare()">Save fare</button>
-      </div>
-      <div class="log" id="fareLog">waiting</div>
+  <section class="panel" id="unpaid">
+    <div class="panel-head">
+      <div><h3>Unpaid rides</h3><div class="desc">Completed rides where mobile money payment is pending or failed</div></div>
+      <button class="ghost" onclick="loadUnpaidRides()">Refresh</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>ID</th><th>Passenger</th><th>Fare</th><th>Status</th><th>Completed</th></tr></thead>
+        <tbody id="unpaidBody"><tr><td colspan="5" class="empty-row">Connect above to load rides</td></tr></tbody>
+      </table>
     </div>
   </section>
 
-  <section>
-    <div class="panel">
-      <div class="refresh-row">
-        <div>
-          <h2 style="margin-bottom:0;">Riders</h2>
-          <p class="desc" style="margin-bottom:0;">Every rider that has signed up, newest first.</p>
-        </div>
-        <button class="ghost" onclick="loadRiders()">Refresh</button>
-      </div>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Phone</th>
-              <th>Vehicle</th>
-              <th>Plate</th>
-              <th>Approved</th>
-              <th>Active</th>
-              <th>Rides</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="ridersBody">
-            <tr><td colspan="9" style="color:var(--muted);">Connect above to load riders</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="log" id="photoLog" style="display:none;"></div>
+  <section class="panel" id="withdrawals">
+    <div class="panel-head">
+      <div><h3>Withdrawal requests</h3><div class="desc">Riders requesting payout from their wallet</div></div>
+      <button class="ghost" onclick="loadWithdrawals()">Refresh</button>
     </div>
-  </section>
-  <section>
-    <div class="panel">
-      <div class="refresh-row">
-        <div>
-          <h2 style="margin-bottom:0;">Active Rides</h2>
-          <p class="desc" style="margin-bottom:0;">Rides not yet completed or cancelled. Use Force Cancel to clear a stuck ride.</p>
-        </div>
-        <button class="ghost" onclick="loadActiveRides()">Refresh</button>
-      </div>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Passenger</th>
-              <th>Status</th>
-              <th>Requested</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="activeRidesBody">
-            <tr><td colspan="5" style="color:var(--muted);">Connect above to load rides</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>ID</th><th>Rider</th><th>Amount</th><th>Network</th><th>Phone</th><th>Status</th><th>Requested</th><th>Action</th></tr></thead>
+        <tbody id="withdrawalsBody"><tr><td colspan="8" class="empty-row">Connect above to load requests</td></tr></tbody>
+      </table>
     </div>
   </section>
 
-  <section>
-    <div class="panel">
-      <div class="refresh-row">
-        <div>
-          <h2 style="margin-bottom:0;">Withdrawal Requests</h2>
-          <p class="desc" style="margin-bottom:0;">Riders requesting payout from their wallet. Mark as Paid once you've sent the money via mobile money.</p>
-        </div>
-        <button class="ghost" onclick="loadWithdrawals()">Refresh</button>
+  <section class="panel" id="commission">
+    <div class="panel-head">
+      <div><h3>Riders owing commission</h3><div class="desc">From cash rides — record a payment once a rider settles up</div></div>
+      <button class="ghost" onclick="loadCommissionOwed()">Refresh</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Rider</th><th>Phone</th><th>Owed</th><th>Wallet</th><th>Action</th></tr></thead>
+        <tbody id="commissionBody"><tr><td colspan="5" class="empty-row">Connect above to load riders</td></tr></tbody>
+      </table>
+    </div>
+    <div class="log" id="commissionLog" style="display:none;"></div>
+  </section>
+
+  <section class="panel" id="promo">
+    <div class="panel-head">
+      <div><h3>Promo codes</h3><div class="desc">Create and manage discount codes</div></div>
+      <button class="ghost" onclick="loadPromoCodes()">Refresh</button>
+    </div>
+    <div class="row" style="margin-bottom:18px;">
+      <div class="field"><label>CODE</label><input id="promoCode" placeholder="e.g. WELCOME10"></div>
+      <div class="field">
+        <label>TYPE</label>
+        <select id="promoType" style="background:var(--surface-2); border:1px solid var(--line); color:var(--text); padding:9px 12px; border-radius:8px; font-size:13px;">
+          <option value="percent">Percent</option>
+          <option value="flat">Flat (Kwacha)</option>
+        </select>
       </div>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Rider</th>
-              <th>Amount</th>
-              <th>Network</th>
-              <th>Phone</th>
-              <th>Status</th>
-              <th>Requested</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="withdrawalsBody">
-            <tr><td colspan="8" style="color:var(--muted);">Connect above to load requests</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <div class="field"><label>VALUE</label><input id="promoValue" type="number" style="width:90px;" placeholder="10"></div>
+      <div class="field"><label>MAX USES (optional)</label><input id="promoMaxUses" type="number" style="width:110px;"></div>
+      <button onclick="createPromoCode()">Create code</button>
+    </div>
+    <div class="log" id="promoLog" style="display:none;"></div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Code</th><th>Type</th><th>Value</th><th>Uses</th><th>Status</th><th>Expires</th><th>Action</th></tr></thead>
+        <tbody id="promoBody"><tr><td colspan="7" class="empty-row">Connect above to load promo codes</td></tr></tbody>
+      </table>
     </div>
   </section>
 
-  <section>
-    <div class="panel">
-      <h2>Test: MoneyUnify payment request</h2>
-      <p class="desc">Sends a real test charge request and shows the exact raw response.</p>
-      <div class="row">
-        <div class="field">
-          <label>PHONE NUMBER</label>
-          <input type="text" id="testPhone" placeholder="e.g. 0961234567">
-        </div>
-        <div class="field">
-          <label>AMOUNT (K)</label>
-          <input type="number" id="testAmount" placeholder="e.g. 1">
-        </div>
-        <button onclick="testPayment()">Send test charge</button>
-      </div>
-      <div class="log" id="testPaymentLog">waiting</div>
+  <section class="panel" id="fare">
+    <div class="panel-head">
+      <div><h3>Fare settings</h3><div class="desc">Adds a new fare row — the server always reads the most recent one</div></div>
     </div>
+    <div class="row">
+      <div class="field"><label>BASE FARE (K)</label><input id="baseFare" type="number" step="0.01" placeholder="10.00"></div>
+      <div class="field"><label>PER KM (K)</label><input id="perKm" type="number" step="0.01" placeholder="5.00"></div>
+      <div class="field"><label>ZAMBIKE %</label><input id="pct" type="number" placeholder="10"></div>
+      <button onclick="updateFare()">Save fare</button>
+    </div>
+    <div class="log" id="fareLog" style="display:none;"></div>
   </section>
 
-  <section>
-    <div class="panel">
-      <div class="refresh-row">
-        <div>
-          <h2 style="margin-bottom:0;">Riders Owing Commission</h2>
-          <p class="desc" style="margin-bottom:0;">From cash rides. Record a payment once a rider sends you their owed commission via mobile money.</p>
-        </div>
-        <button class="ghost" onclick="loadCommissionOwed()">Refresh</button>
-      </div>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>Rider</th>
-              <th>Phone</th>
-              <th>Owed</th>
-              <th>Wallet Balance</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="commissionOwedBody">
-            <tr><td colspan="5" style="color:var(--muted);">Connect above to load riders</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="log" id="commissionPaymentLog" style="display:none;"></div>
+  <section class="panel" id="payment-test">
+    <div class="panel-head">
+      <div><h3>MoneyUnify payment test</h3><div class="desc">Sends a real test charge request and shows the raw response</div></div>
     </div>
+    <div class="row">
+      <div class="field"><label>PHONE NUMBER</label><input id="testPhone" placeholder="e.g. 0961234567"></div>
+      <div class="field"><label>AMOUNT (K)</label><input id="testAmount" type="number" placeholder="1"></div>
+      <button onclick="testPayment()">Send test charge</button>
+    </div>
+    <div class="log" id="testPaymentLog" style="display:none;"></div>
   </section>
 
 </main>
 
-<footer>zambike-server · admin console</footer>
+<div class="modal-overlay" id="licenseModal">
+  <div class="modal">
+    <span class="modal-close" onclick="closeLicenseModal()">✕ Close</span>
+    <h4>Rider ID / license</h4>
+    <div id="licenseModalBody">Loading…</div>
+  </div>
+</div>
 
 <script>
 let API = document.getElementById('apiUrl').value;
 let KEY = '';
 
+// ---------- Theme ----------
+function applyTheme(theme){
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('themeLabel').textContent = theme === 'dark' ? '🌙 Dark mode' : '☀️ Light mode';
+  localStorage.setItem('zambike-admin-theme', theme);
+}
+function toggleTheme(){
+  const current = document.documentElement.getAttribute('data-theme');
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+(function initTheme(){
+  const saved = localStorage.getItem('zambike-admin-theme');
+  applyTheme(saved || 'dark');
+})();
+
+// Remember the API URL (not the admin key) between visits, for convenience.
+(function initSavedUrl(){
+  const savedUrl = localStorage.getItem('zambike-admin-url');
+  if (savedUrl) document.getElementById('apiUrl').value = savedUrl;
+})();
+
+function setConn(state, label){
+  const dot = document.getElementById('connDot');
+  const text = document.getElementById('connText');
+  dot.className = 'conn-dot' + (state === 'live' ? ' live' : '');
+  text.textContent = label;
+}
+
+// ---------- Connect ----------
 async function connect(){
   API = document.getElementById('apiUrl').value.replace(/\/$/, '');
   KEY = document.getElementById('adminKey').value;
-  const pill = document.getElementById('connStatus');
-  pill.textContent = 'checking…';
-  pill.className = 'status-pill';
+  localStorage.setItem('zambike-admin-url', API);
+  setConn('checking', 'checking…');
   try{
     const res = await fetch(API + '/admin/stats', { headers: { 'x-admin-key': KEY } });
     const data = await res.json();
-    if(!res.ok){
-      pill.textContent = 'rejected';
-      pill.className = 'status-pill off';
-      return;
-    }
-    pill.textContent = 'connected';
-    pill.className = 'status-pill live';
+    if(!res.ok){ setConn('off', 'rejected'); return; }
+    setConn('live', 'connected');
     document.getElementById('statRiders').textContent = data.total_riders;
     document.getElementById('statPassengers').textContent = data.total_passengers;
     document.getElementById('statRides').textContent = data.total_rides;
-    document.getElementById('statEarnings').textContent = Number(data.total_earnings).toFixed(2);
-    loadRiders();
-    loadActiveRides();
-    loadWithdrawals();
-    loadCommissionOwed();
+    document.getElementById('statEarnings').textContent = 'K' + Number(data.total_earnings).toFixed(2);
+    loadRiders(); loadActiveRides(); loadWithdrawals(); loadCommissionOwed(); loadPromoCodes(); loadUnpaidRides();
   }catch(e){
-    pill.textContent = 'unreachable';
-    pill.className = 'status-pill off';
+    setConn('off', 'unreachable');
   }
 }
 
-async function loadActiveRides(){
-  const body = document.getElementById('activeRidesBody');
-  body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">Loading…</td></tr>';
-  try{
-    const res = await fetch(API + '/admin/active-rides', { headers: { 'x-admin-key': KEY } });
-    const data = await res.json();
-    if(!res.ok){
-      body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
-      return;
-    }
-    if(!data.rides || data.rides.length === 0){
-      body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No active rides</td></tr>';
-      return;
-    }
-    body.innerHTML = data.rides.map(r => `
-      <tr>
-        <td>${r.id}</td>
-        <td>${r.passenger_name}<br><span style="color:var(--muted);font-size:11px;">${r.passenger_phone}</span></td>
-        <td><span class="badge no">${r.status}</span></td>
-        <td style="font-size:11px;color:var(--muted);">${new Date(r.requested_at).toLocaleString()}</td>
-        <td>
-          <button class="mini-btn danger" onclick="forceCancelRide(${r.id})">Force Cancel</button>
-        </td>
-      </tr>
-    `).join('');
-  }catch(e){
-    body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">network error</td></tr>';
-  }
+async function apiGet(path){
+  const res = await fetch(API + path, { headers: { 'x-admin-key': KEY } });
+  const data = await res.json();
+  return { ok: res.ok, data };
 }
-
-async function forceCancelRide(id){
-  await fetch(API + '/admin/force-cancel-ride/' + id, { method:'POST', headers:{ 'x-admin-key': KEY } });
-  loadActiveRides();
-}
-
-async function loadWithdrawals(){
-  const body = document.getElementById('withdrawalsBody');
-  body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);">Loading…</td></tr>';
-  try{
-    const res = await fetch(API + '/admin/withdrawal-requests', { headers: { 'x-admin-key': KEY } });
-    const data = await res.json();
-    if(!res.ok){
-      body.innerHTML = '<tr><td colspan="8" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
-      return;
-    }
-    if(!data.requests || data.requests.length === 0){
-      body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);">No withdrawal requests</td></tr>';
-      return;
-    }
-    body.innerHTML = data.requests.map(w => `
-      <tr>
-        <td>${w.id}</td>
-        <td>${w.rider_name}</td>
-        <td>K${Number(w.amount).toFixed(2)}</td>
-        <td>${w.network === 'airtel' ? 'Airtel' : 'MTN'}</td>
-        <td>${w.phone_number}</td>
-        <td><span class="badge ${w.status === 'paid' ? 'yes' : w.status === 'rejected' ? 'off' : 'no'}">${w.status}</span></td>
-        <td style="font-size:11px;color:var(--muted);">${new Date(w.requested_at).toLocaleString()}</td>
-        <td>
-          ${w.status === 'pending' ? `
-            <button class="mini-btn" onclick="completeWithdrawal(${w.id})">Mark Paid</button>
-            <button class="mini-btn danger" onclick="rejectWithdrawal(${w.id})">Reject</button>
-          ` : ''}
-        </td>
-      </tr>
-    `).join('');
-  }catch(e){
-    body.innerHTML = '<tr><td colspan="8" style="color:var(--red);">network error</td></tr>';
-  }
-}
-
-async function completeWithdrawal(id){
-  await fetch(API + '/admin/withdrawal-requests/' + id + '/complete', { method:'POST', headers:{ 'x-admin-key': KEY } });
-  loadWithdrawals();
-}
-
-async function rejectWithdrawal(id){
-  await fetch(API + '/admin/withdrawal-requests/' + id + '/reject', {
-    method:'POST',
-    headers:{ 'x-admin-key': KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ note: 'Rejected by admin' })
+async function apiPost(path, body){
+  const res = await fetch(API + path, {
+    method: 'POST',
+    headers: { 'x-admin-key': KEY, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
   });
-  loadWithdrawals();
+  const data = await res.json();
+  return { ok: res.ok, data };
 }
-
-async function testPayment(){
-  const phone = document.getElementById('testPhone').value;
-  const amount = document.getElementById('testAmount').value;
-  const el = document.getElementById('testPaymentLog');
-  if(!phone || !amount) return;
-  el.className = 'log';
-  el.textContent = 'Sending…';
-  try{
-    const res = await fetch(API + '/admin/debug-payment-test', {
-      method: 'POST',
-      headers: { 'x-admin-key': KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, amount: Number(amount) })
-    });
-    const data = await res.json();
-    el.className = res.ok ? 'log ok' : 'log err';
-    el.textContent = JSON.stringify(data, null, 2);
-  }catch(e){
-    el.className = 'log err';
-    el.textContent = 'network error: ' + e.message;
-  }
-}
-
-async function loadCommissionOwed(){
-  const body = document.getElementById('commissionOwedBody');
-  body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">Loading…</td></tr>';
-  try{
-    const res = await fetch(API + '/admin/riders-owing-commission', { headers: { 'x-admin-key': KEY } });
-    const data = await res.json();
-    if(!res.ok){
-      body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
-      return;
-    }
-    if(!data.riders || data.riders.length === 0){
-      body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No riders owe commission right now</td></tr>';
-      return;
-    }
-    body.innerHTML = data.riders.map(r => `
-      <tr>
-        <td>${r.name}</td>
-        <td>${r.phone}</td>
-        <td style="color:var(--red);font-weight:700;">K${Number(r.commission_owed).toFixed(2)}</td>
-        <td>K${Number(r.wallet_balance).toFixed(2)}</td>
-        <td>
-          <button class="mini-btn" onclick="recordCommissionPayment(${r.id}, '${r.name}')">Record payment</button>
-        </td>
-      </tr>
-    `).join('');
-  }catch(e){
-    body.innerHTML = '<tr><td colspan="5" style="color:var(--red);">network error</td></tr>';
-  }
-}
-
-async function recordCommissionPayment(riderId, riderName){
-  const amountStr = prompt('How much did ' + riderName + ' pay towards their commission owed? (K)');
-  if(!amountStr) return;
-  const amount = Number(amountStr);
-  if(!amount || amount <= 0){
-    alert('Invalid amount');
-    return;
-  }
-  const el = document.getElementById('commissionPaymentLog');
+function showLog(id, ok, content){
+  const el = document.getElementById(id);
   el.style.display = 'block';
-  el.className = 'log';
-  el.textContent = 'Recording…';
-  try{
-    const res = await fetch(API + '/admin/riders/' + riderId + '/record-commission-payment', {
-      method: 'POST',
-      headers: { 'x-admin-key': KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, note: 'Recorded via admin dashboard' })
-    });
-    const data = await res.json();
-    el.className = res.ok ? 'log ok' : 'log err';
-    el.textContent = res.ok ? ('Recorded K' + amount + ' payment for ' + riderName) : JSON.stringify(data);
-    loadCommissionOwed();
-  }catch(e){
-    el.className = 'log err';
-    el.textContent = 'network error: ' + e.message;
-  }
+  el.className = 'log ' + (ok ? 'ok' : 'err');
+  el.textContent = typeof content === 'string' ? content : JSON.stringify(content);
 }
 
+// ---------- Riders ----------
 async function loadRiders(){
   const body = document.getElementById('ridersBody');
-  body.innerHTML = '<tr><td colspan="9" style="color:var(--muted);">Loading…</td></tr>';
-  try{
-    const res = await fetch(API + '/admin/riders', { headers: { 'x-admin-key': KEY } });
-    const data = await res.json();
-    if(!res.ok){
-      body.innerHTML = '<tr><td colspan="9" style="color:var(--red);">' + JSON.stringify(data) + '</td></tr>';
-      return;
-    }
-    if(!data.riders || data.riders.length === 0){
-      body.innerHTML = '<tr><td colspan="9" style="color:var(--muted);">No riders yet</td></tr>';
-      return;
-    }
-    body.innerHTML = data.riders.map(r => `
-      <tr>
-        <td>${r.id}</td>
-        <td>${r.name}</td>
-        <td>${r.phone}</td>
-        <td>${r.vehicle_type || 'bike'}</td>
-        <td>${r.bike_plate || '—'}</td>
-        <td><span class="badge ${r.is_approved ? 'yes' : 'no'}">${r.is_approved ? 'approved' : 'pending'}</span></td>
-        <td><span class="badge ${r.is_active ? 'yes' : 'off'}">${r.is_active ? 'active' : 'suspended'}</span></td>
-        <td>${r.total_rides}</td>
-        <td>
-          ${r.has_license_photo ? `<button class="mini-btn ghost" onclick="viewLicense(${r.id})">View ID</button>` : '<span style="color:var(--muted);font-size:11px;">No ID</span>'}
-          ${!r.is_approved ? `<button class="mini-btn" onclick="quickApprove(${r.id})">Approve</button>` : ''}
-          ${r.is_active ? `<button class="mini-btn danger" onclick="quickSuspend(${r.id})">Suspend</button>` : ''}
-        </td>
-      </tr>
-    `).join('');
-  }catch(e){
-    body.innerHTML = '<tr><td colspan="9" style="color:var(--red);">network error</td></tr>';
-  }
+  body.innerHTML = '<tr><td colspan="9" class="empty-row">Loading…</td></tr>';
+  const { ok, data } = await apiGet('/admin/riders');
+  if(!ok){ body.innerHTML = '<tr><td colspan="9" class="empty-row">' + JSON.stringify(data) + '</td></tr>'; return; }
+  if(!data.riders || data.riders.length === 0){ body.innerHTML = '<tr><td colspan="9" class="empty-row">No riders yet</td></tr>'; return; }
+  body.innerHTML = data.riders.map(r => `
+    <tr>
+      <td>${r.id}</td><td>${r.name}</td><td>${r.phone}</td><td>${r.vehicle_type || 'bike'}</td><td>${r.bike_plate || '—'}</td>
+      <td><span class="pill ${r.is_approved ? 'on' : 'pending'}">${r.is_approved ? 'approved' : 'pending'}</span></td>
+      <td><span class="pill ${r.is_active ? 'on' : 'off'}">${r.is_active ? 'active' : 'suspended'}</span></td>
+      <td>${r.total_rides}</td>
+      <td>
+        ${r.has_license_photo ? `<button class="mini ghost" onclick="viewLicense(${r.id})">View ID</button>` : '<span class="pill muted">No ID</span>'}
+        ${!r.is_approved ? `<button class="mini" onclick="quickApprove(${r.id})">Approve</button>` : ''}
+        ${r.is_active ? `<button class="mini danger" onclick="quickSuspend(${r.id})">Suspend</button>` : ''}
+      </td>
+    </tr>
+  `).join('');
 }
-
+async function quickApprove(id){ await apiPost('/admin/approve-rider/' + id); loadRiders(); }
+async function quickSuspend(id){ await apiPost('/admin/suspend-user/' + id); loadRiders(); }
 async function viewLicense(id){
-  const el = document.getElementById('photoLog');
-  el.style.display = 'block';
-  el.className = 'log';
-  el.innerHTML = 'Loading photo…';
-  try{
-    const res = await fetch(API + '/admin/rider-license/' + id, { headers: { 'x-admin-key': KEY } });
-    const data = await res.json();
-    if(!res.ok){
-      el.className = 'log err';
-      el.innerHTML = JSON.stringify(data);
-      return;
-    }
-    el.className = 'log ok';
-    el.innerHTML = '<img src="' + data.license_photo + '" style="max-width:100%;border-radius:10px;margin-top:6px;" />';
-  }catch(e){
-    el.className = 'log err';
-    el.innerHTML = 'network error: ' + e.message;
+  document.getElementById('licenseModal').classList.add('show');
+  const el = document.getElementById('licenseModalBody');
+  el.innerHTML = 'Loading…';
+  const { ok, data } = await apiGet('/admin/rider-license/' + id);
+  if(!ok){ el.innerHTML = JSON.stringify(data); return; }
+  el.innerHTML = '<img src="' + data.license_photo + '" />';
+}
+function closeLicenseModal(){ document.getElementById('licenseModal').classList.remove('show'); }
+
+// ---------- Active rides ----------
+async function loadActiveRides(){
+  const body = document.getElementById('activeRidesBody');
+  body.innerHTML = '<tr><td colspan="5" class="empty-row">Loading…</td></tr>';
+  const { ok, data } = await apiGet('/admin/active-rides');
+  if(!ok){ body.innerHTML = '<tr><td colspan="5" class="empty-row">' + JSON.stringify(data) + '</td></tr>'; return; }
+  if(!data.rides || data.rides.length === 0){ body.innerHTML = '<tr><td colspan="5" class="empty-row">No active rides</td></tr>'; return; }
+  body.innerHTML = data.rides.map(r => `
+    <tr>
+      <td>${r.id}</td>
+      <td>${r.passenger_name}<br><span style="color:var(--muted); font-size:11px;">${r.passenger_phone}</span></td>
+      <td><span class="pill pending">${r.status}</span></td>
+      <td style="font-size:11px; color:var(--muted);">${new Date(r.requested_at).toLocaleString()}</td>
+      <td><button class="mini danger" onclick="forceCancelRide(${r.id})">Force cancel</button></td>
+    </tr>
+  `).join('');
+}
+async function forceCancelRide(id){ await apiPost('/admin/force-cancel-ride/' + id); loadActiveRides(); }
+
+// ---------- Unpaid rides ----------
+async function loadUnpaidRides(){
+  const body = document.getElementById('unpaidBody');
+  body.innerHTML = '<tr><td colspan="5" class="empty-row">Loading…</td></tr>';
+  const { ok, data } = await apiGet('/admin/unpaid-rides');
+  if(!ok){ body.innerHTML = '<tr><td colspan="5" class="empty-row">' + JSON.stringify(data) + '</td></tr>'; return; }
+  if(!data.rides || data.rides.length === 0){ body.innerHTML = '<tr><td colspan="5" class="empty-row">No unpaid rides</td></tr>'; return; }
+  body.innerHTML = data.rides.map(r => `
+    <tr>
+      <td>${r.id}</td>
+      <td>${r.passenger_name}<br><span style="color:var(--muted); font-size:11px;">${r.passenger_phone}</span></td>
+      <td>K${Number(r.fare).toFixed(2)}</td>
+      <td><span class="pill ${r.payment_status === 'failed' ? 'off' : 'pending'}">${r.payment_status}</span></td>
+      <td style="font-size:11px; color:var(--muted);">${new Date(r.completed_at).toLocaleString()}</td>
+    </tr>
+  `).join('');
+}
+
+// ---------- Withdrawals ----------
+async function loadWithdrawals(){
+  const body = document.getElementById('withdrawalsBody');
+  body.innerHTML = '<tr><td colspan="8" class="empty-row">Loading…</td></tr>';
+  const { ok, data } = await apiGet('/admin/withdrawal-requests');
+  if(!ok){ body.innerHTML = '<tr><td colspan="8" class="empty-row">' + JSON.stringify(data) + '</td></tr>'; return; }
+  if(!data.requests || data.requests.length === 0){ body.innerHTML = '<tr><td colspan="8" class="empty-row">No withdrawal requests</td></tr>'; return; }
+  body.innerHTML = data.requests.map(w => `
+    <tr>
+      <td>${w.id}</td><td>${w.rider_name}</td><td>K${Number(w.amount).toFixed(2)}</td>
+      <td>${w.network === 'airtel' ? 'Airtel' : 'MTN'}</td><td>${w.phone_number}</td>
+      <td><span class="pill ${w.status === 'paid' ? 'on' : w.status === 'rejected' ? 'off' : 'pending'}">${w.status}</span></td>
+      <td style="font-size:11px; color:var(--muted);">${new Date(w.requested_at).toLocaleString()}</td>
+      <td>${w.status === 'pending' ? `
+        <button class="mini" onclick="completeWithdrawal(${w.id})">Mark paid</button>
+        <button class="mini danger" onclick="rejectWithdrawal(${w.id})">Reject</button>` : ''}</td>
+    </tr>
+  `).join('');
+}
+async function completeWithdrawal(id){ await apiPost('/admin/withdrawal-requests/' + id + '/complete'); loadWithdrawals(); }
+async function rejectWithdrawal(id){ await apiPost('/admin/withdrawal-requests/' + id + '/reject', { note: 'Rejected by admin' }); loadWithdrawals(); }
+
+// ---------- Commission owed ----------
+async function loadCommissionOwed(){
+  const body = document.getElementById('commissionBody');
+  body.innerHTML = '<tr><td colspan="5" class="empty-row">Loading…</td></tr>';
+  const { ok, data } = await apiGet('/admin/riders-owing-commission');
+  if(!ok){ body.innerHTML = '<tr><td colspan="5" class="empty-row">' + JSON.stringify(data) + '</td></tr>'; return; }
+  if(!data.riders || data.riders.length === 0){ body.innerHTML = '<tr><td colspan="5" class="empty-row">No riders owe commission right now</td></tr>'; return; }
+  body.innerHTML = data.riders.map(r => `
+    <tr>
+      <td>${r.name}</td><td>${r.phone}</td>
+      <td style="color:var(--red); font-weight:700;">K${Number(r.commission_owed).toFixed(2)}</td>
+      <td>K${Number(r.wallet_balance).toFixed(2)}</td>
+      <td><button class="mini" onclick="recordCommissionPayment(${r.id}, '${r.name}')">Record payment</button></td>
+    </tr>
+  `).join('');
+}
+async function recordCommissionPayment(riderId, riderName){
+  const amountStr = prompt('How much did ' + riderName + ' pay towards commission owed? (K)');
+  if(!amountStr) return;
+  const amount = Number(amountStr);
+  if(!amount || amount <= 0){ alert('Invalid amount'); return; }
+  const { ok, data } = await apiPost('/admin/riders/' + riderId + '/record-commission-payment', { amount, note: 'Recorded via admin dashboard' });
+  showLog('commissionLog', ok, ok ? ('Recorded K' + amount + ' payment for ' + riderName) : data);
+  loadCommissionOwed();
+}
+
+// ---------- Promo codes ----------
+async function loadPromoCodes(){
+  const body = document.getElementById('promoBody');
+  body.innerHTML = '<tr><td colspan="7" class="empty-row">Loading…</td></tr>';
+  const { ok, data } = await apiGet('/admin/promo-codes');
+  if(!ok){ body.innerHTML = '<tr><td colspan="7" class="empty-row">' + JSON.stringify(data) + '</td></tr>'; return; }
+  if(!data.codes || data.codes.length === 0){ body.innerHTML = '<tr><td colspan="7" class="empty-row">No promo codes yet</td></tr>'; return; }
+  body.innerHTML = data.codes.map(c => `
+    <tr>
+      <td style="font-family:'JetBrains Mono';">${c.code}</td>
+      <td>${c.discount_type}</td>
+      <td>${c.discount_type === 'percent' ? c.discount_value + '%' : 'K' + c.discount_value}</td>
+      <td>${c.uses_count}${c.max_uses ? ' / ' + c.max_uses : ''}</td>
+      <td><span class="pill ${c.is_active ? 'on' : 'off'}">${c.is_active ? 'active' : 'disabled'}</span></td>
+      <td style="font-size:11px; color:var(--muted);">${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'never'}</td>
+      <td><button class="mini ghost" onclick="togglePromoCode(${c.id})">${c.is_active ? 'Disable' : 'Enable'}</button></td>
+    </tr>
+  `).join('');
+}
+async function createPromoCode(){
+  const code = document.getElementById('promoCode').value.trim();
+  const discount_type = document.getElementById('promoType').value;
+  const discount_value = Number(document.getElementById('promoValue').value);
+  const maxUsesRaw = document.getElementById('promoMaxUses').value;
+  if(!code || !discount_value){ showLog('promoLog', false, 'Code and value are required'); return; }
+  const { ok, data } = await apiPost('/admin/promo-codes', {
+    code, discount_type, discount_value,
+    max_uses: maxUsesRaw ? Number(maxUsesRaw) : null,
+  });
+  showLog('promoLog', ok, ok ? 'Created code ' + code : data);
+  if(ok){
+    document.getElementById('promoCode').value = '';
+    document.getElementById('promoValue').value = '';
+    document.getElementById('promoMaxUses').value = '';
+    loadPromoCodes();
   }
 }
+async function togglePromoCode(id){ await apiPost('/admin/promo-codes/' + id + '/toggle'); loadPromoCodes(); }
 
-async function quickApprove(id){
-  await fetch(API + '/admin/approve-rider/' + id, { method:'POST', headers:{ 'x-admin-key': KEY } });
-  loadRiders();
-}
-
-async function quickSuspend(id){
-  await fetch(API + '/admin/suspend-user/' + id, { method:'POST', headers:{ 'x-admin-key': KEY } });
-  loadRiders();
-}
-
-async function call(path, log){
-  const el = document.getElementById(log);
-  el.className = 'log';
-  el.textContent = 'sending…';
-  try{
-    const res = await fetch(API + path, {
-      method:'POST',
-      headers:{ 'x-admin-key': KEY, 'Content-Type':'application/json' },
-    });
-    const data = await res.json();
-    if(!res.ok){
-      el.className = 'log err';
-      el.textContent = JSON.stringify(data);
-      return;
-    }
-    el.className = 'log ok';
-    el.textContent = JSON.stringify(data);
-  }catch(e){
-    el.className = 'log err';
-    el.textContent = 'network error: ' + e.message;
-  }
-}
-
-async function approveRider(){
-  const id = document.getElementById('approveId').value;
-  if(!id) return;
-  await call('/admin/approve-rider/' + id, 'approveLog');
-}
-
-async function suspendUser(){
-  const id = document.getElementById('suspendId').value;
-  if(!id) return;
-  await call('/admin/suspend-user/' + id, 'suspendLog');
-}
-
+// ---------- Fare settings ----------
 async function updateFare(){
-  const el = document.getElementById('fareLog');
-  el.className = 'log';
-  el.textContent = 'sending…';
   const body = {
     base_fare: document.getElementById('baseFare').value || undefined,
     per_km_rate: document.getElementById('perKm').value || undefined,
-    zambike_percentage: document.getElementById('pct').value || undefined
+    zambike_percentage: document.getElementById('pct').value || undefined,
   };
-  try{
-    const res = await fetch(API + '/admin/fare-settings', {
-      method:'POST',
-      headers:{ 'x-admin-key': KEY, 'Content-Type':'application/json' },
-      body: JSON.stringify(body)
-    });
-    const data = await res.json();
-    if(!res.ok){
-      el.className = 'log err';
-      el.textContent = JSON.stringify(data);
-      return;
-    }
-    el.className = 'log ok';
-    el.textContent = JSON.stringify(data);
-  }catch(e){
-    el.className = 'log err';
-    el.textContent = 'network error: ' + e.message;
-  }
+  const { ok, data } = await apiPost('/admin/fare-settings', body);
+  showLog('fareLog', ok, data);
 }
-</script>
 
+// ---------- Payment test ----------
+async function testPayment(){
+  const phone = document.getElementById('testPhone').value;
+  const amount = document.getElementById('testAmount').value;
+  if(!phone || !amount) return;
+  const { ok, data } = await apiPost('/admin/debug-payment-test', { phone, amount: Number(amount) });
+  showLog('testPaymentLog', ok, JSON.stringify(data, null, 2));
+}
+
+// ---------- Sidebar active-link highlighting on scroll ----------
+const sections = document.querySelectorAll('main section[id]');
+const navLinks = document.querySelectorAll('.nav-item');
+window.addEventListener('scroll', () => {
+  let current = 'overview';
+  sections.forEach(s => { if (window.scrollY >= s.offsetTop - 100) current = s.id; });
+  navLinks.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + current));
+});
+</script>
 </body>
 </html>
