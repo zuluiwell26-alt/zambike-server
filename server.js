@@ -183,6 +183,13 @@ app.post('/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'All fields required' });
         if (!['passenger', 'rider'].includes(role))
             return res.status(400).json({ error: 'Role must be passenger or rider' });
+
+        const validPrefixes = ['057', '097', '077', '096', '095', '075'];
+        const cleanPhone = phone.trim();
+        const hasValidPrefix = validPrefixes.some(p => cleanPhone.startsWith(p));
+        if (cleanPhone.length !== 10 || !hasValidPrefix)
+            return res.status(400).json({ error: 'Phone number must be 10 digits and start with 057, 097, 077, 096, 095, or 075' });
+
         if (role === 'rider' && !bike_plate)
             return res.status(400).json({ error: 'Vehicle plate number required for riders' });
         if (role === 'rider' && !license_photo)
@@ -401,6 +408,14 @@ app.post('/rider/status', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
         const { is_online } = req.body;
+
+        if (is_online) {
+            const { rows } = await pool.query('SELECT is_approved FROM users WHERE id=$1', [req.user.id]);
+            if (!rows[0]?.is_approved) {
+                return res.status(403).json({ error: 'Waiting for approval', pending_approval: true });
+            }
+        }
+
         await pool.query('UPDATE users SET is_online=$1 WHERE id=$2', [is_online, req.user.id]);
         res.json({ success: true, is_online });
     } catch(e) { res.status(500).json({ error: e.message }); }
