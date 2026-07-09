@@ -171,7 +171,7 @@
   <a class="nav-item" href="#" onclick="showPage('fare'); return false;"><span class="nav-icon">▣</span> Fare settings</a>
   <div class="nav-section">System</div>
   <a class="nav-item" href="#" onclick="showPage('payment-test'); return false;"><span class="nav-icon">⚙</span> Payment test</a>
-  <a class="nav-item" href="#" onclick="showPage('danger'); return false;" style="color:var(--red);"><span class="nav-icon">⚠</span> Danger zone</a>
+  <a class="nav-item" href="#" onclick="showPage('danger'); return false;"><span class="nav-icon">🔒</span> Security</a>
 
   <div class="sidebar-foot">
     <div class="theme-toggle" onclick="toggleTheme()">
@@ -326,22 +326,23 @@
     <div class="log" id="testPaymentLog" style="display:none;"></div>
   </section>
 
-  <section class="panel danger-zone" id="danger">
+  <section class="panel" id="danger">
     <div class="panel-head">
-      <div><h3>Danger zone</h3><div class="desc">Permanently erase all riders, passengers, ride history, and withdrawal records — cannot be undone</div></div>
+      <div><h3>Security</h3><div class="desc">Enter the password to continue</div></div>
     </div>
 
     <div id="dangerLocked">
       <div class="field" style="margin-bottom:12px;">
-        <label>Security password</label>
-        <input id="dangerPassword" type="password" placeholder="Enter password to unlock" style="width:220px;">
+        <label>Password</label>
+        <input id="dangerPassword" type="password" placeholder="Enter password" style="width:220px;">
       </div>
       <button class="ghost" onclick="unlockDangerZone()">🔒 Unlock</button>
       <div class="log" id="dangerUnlockLog" style="display:none;"></div>
     </div>
 
     <div id="dangerUnlocked" style="display:none;">
-      <p style="color:var(--muted); font-size:12.5px;">Unlocked for this session. This action cannot be undone.</p>
+      <h3 style="color:var(--red); margin-top:0;">Danger zone</h3>
+      <p style="color:var(--muted); font-size:12.5px;">Permanently erase all riders, passengers, ride history, and withdrawal records — cannot be undone.</p>
       <button class="danger" onclick="resetAllData()">Wipe all data</button>
       <div class="log" id="resetLog" style="display:none;"></div>
     </div>
