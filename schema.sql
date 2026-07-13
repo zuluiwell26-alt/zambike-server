@@ -37,6 +37,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS discount_rides_percent NUMERIC DEFAUL
 ALTER TABLE users ADD COLUMN IF NOT EXISTS new_signup_discount_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance NUMERIC DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS commission_owed NUMERIC DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS id_verified_at TIMESTAMP;
 
 -- Rider locations (updated in real time)
 CREATE TABLE IF NOT EXISTS rider_locations (
@@ -204,4 +205,14 @@ CREATE TABLE IF NOT EXISTS map_corrections (
     created_at TIMESTAMP DEFAULT NOW(),
     reviewed_at TIMESTAMP,
     admin_note TEXT
+);
+
+-- Phone number verification codes sent during registration
+CREATE TABLE IF NOT EXISTS phone_verifications (
+    id SERIAL PRIMARY KEY,
+    phone TEXT NOT NULL,
+    code TEXT NOT NULL,
+    verified BOOLEAN DEFAULT FALSE,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
 );
