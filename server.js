@@ -368,6 +368,24 @@ app.post('/ride/messages/:rideId', authMiddleware, async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Community map corrections — riders/passengers flag a wrong road, a better
+// pickup spot, or an unnamed road so an admin can review and act on it.
+app.post('/map-corrections', authMiddleware, async (req, res) => {
+    try {
+        const { lat, lng, category, description } = req.body;
+        if (!lat || !lng) return res.status(400).json({ error: 'Location required' });
+        const validCategories = ['wrong_road', 'better_pickup', 'unnamed_road', 'other'];
+        if (!validCategories.includes(category))
+            return res.status(400).json({ error: 'Invalid category' });
+
+        const { rows } = await pool.query(
+            'INSERT INTO map_corrections (reporter_id, lat, lng, category, description) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+            [req.user.id, lat, lng, category, description || null]
+        );
+        res.json({ success: true, correction: rows[0] });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/ride/stops/:rideId', authMiddleware, async (req, res) => {
     try {
         const { rows } = await pool.query(
@@ -712,15 +730,18 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
         const finalZambikeCut = Math.round(baseCut * proportionalMultiplier * 100) / 100;
         const finalRiderEarnings = Math.round((finalFare - finalZambikeCut) * 100) / 100;
 
+        // Random token so a shared tracking link can't be guessed from the ride's numeric ID.
+        const shareToken = require('crypto').randomBytes(12).toString('hex');
+
         const { rows } = await pool.query(
             `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distance_km, fare, zambike_cut,
-             rider_earnings, payment_method, vehicle_type, scheduled_time, promo_code, discount_amount, original_fare)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+             rider_earnings, payment_method, vehicle_type, scheduled_time, promo_code, discount_amount, original_fare, share_token)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
             [req.user.id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distanceKm.toFixed(2),
              finalFare, finalZambikeCut, finalRiderEarnings, finalPaymentMethod, vehicle_type || 'bike',
-             scheduled_time || null, appliedLabel, discountAmount, baseFare]
+             scheduled_time || null, appliedLabel, discountAmount, baseFare, shareToken]
         );
 
         const newRide = rows[0];
@@ -801,6 +822,32 @@ app.get('/passenger/current-ride', authMiddleware, async (req, res) => {
             [req.user.id]
         );
         res.json({ ride: rows[0] || null });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public endpoint (no auth) — powers the shareable "track my ride" link sent to
+// family/friends. Only exposes what's needed to watch a ride in progress: no
+// phone numbers, no passenger identity beyond first name.
+app.get('/track/:token', async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT r.status, r.pickup_lat, r.pickup_lng, r.pickup_address,
+             r.dest_lat, r.dest_lng, r.dest_address, r.requested_at, r.completed_at,
+             u.name as rider_name, u.rating as rider_rating, u.bike_plate as rider_bike_plate,
+             p.name as passenger_name,
+             rl.latitude as rider_lat, rl.longitude as rider_lng, rl.updated_at as rider_location_updated_at
+             FROM rides r
+             LEFT JOIN users u ON r.rider_id = u.id
+             LEFT JOIN users p ON r.passenger_id = p.id
+             LEFT JOIN rider_locations rl ON r.rider_id = rl.rider_id
+             WHERE r.share_token = $1`,
+            [req.params.token]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Trip not found' });
+        const ride = rows[0];
+        ride.passenger_first_name = ride.passenger_name ? ride.passenger_name.split(' ')[0] : 'Passenger';
+        delete ride.passenger_name;
+        res.json({ ride });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1164,6 +1211,35 @@ app.get('/admin/unpaid-rides', async (req, res) => {
              ORDER BY r.completed_at DESC LIMIT 100`
         );
         res.json({ rides: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/map-corrections', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { rows } = await pool.query(
+            `SELECT mc.*, u.name as reporter_name, u.phone as reporter_phone
+             FROM map_corrections mc
+             LEFT JOIN users u ON mc.reporter_id = u.id
+             ORDER BY mc.created_at DESC LIMIT 200`
+        );
+        res.json({ corrections: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/map-corrections/:id/resolve', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+        const { status, admin_note } = req.body;
+        const validStatuses = ['reviewed', 'applied', 'dismissed'];
+        if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+        await pool.query(
+            'UPDATE map_corrections SET status=$1, reviewed_at=NOW(), admin_note=$2 WHERE id=$3',
+            [status, admin_note || null, req.params.id]
+        );
+        res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
