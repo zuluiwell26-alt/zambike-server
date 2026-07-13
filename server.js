@@ -122,6 +122,37 @@ function normalizePhoneForPayment(phone) {
     return cleaned;
 }
 
+function toInternationalFormat(phone) {
+    let cleaned = (phone || '').replace(/\s+/g, '').replace(/[^\d+]/g, '');
+    if (cleaned.startsWith('+260')) return cleaned;
+    if (cleaned.startsWith('260')) return '+' + cleaned;
+    if (cleaned.startsWith('0')) return '+260' + cleaned.slice(1);
+    return '+260' + cleaned;
+}
+
+async function sendSMS(phone, message) {
+    try {
+        const params = new URLSearchParams({
+            username: process.env.AFRICAS_TALKING_USERNAME,
+            to: toInternationalFormat(phone),
+            message: message,
+        });
+        const res = await fetch('https://api.africastalking.com/version1/messaging', {
+            method: 'POST',
+            headers: {
+                'apiKey': process.env.AFRICAS_TALKING_API_KEY,
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json',
+            },
+            body: params.toString(),
+        });
+        const data = await res.json();
+        return data;
+    } catch(e) {
+        return { isError: true, message: e.message };
+    }
+}
+
 async function initiateMoneyUnifyPayment(phone, amount) {
     try {
         const params = new URLSearchParams({
@@ -176,6 +207,60 @@ async function settleCommission(userId) {
     } catch(e) { console.error('Settle commission error:', e); }
 }
 
+app.post('/auth/send-code', async (req, res) => {
+    try {
+        const { phone } = req.body;
+        if (!phone) return res.status(400).json({ error: 'Phone number required' });
+
+        const validPrefixes = ['057', '097', '077', '096', '095', '075'];
+        const cleanPhone = phone.trim();
+        const hasValidPrefix = validPrefixes.some(p => cleanPhone.startsWith(p));
+        if (cleanPhone.length !== 10 || !hasValidPrefix)
+            return res.status(400).json({ error: 'Phone number must be 10 digits and start with 057, 097, 077, 096, 095, or 075' });
+
+        const existing = await pool.query('SELECT id FROM users WHERE phone = $1', [cleanPhone]);
+        if (existing.rows.length > 0)
+            return res.status(400).json({ error: 'Phone number already registered' });
+
+        const code = String(Math.floor(100000 + Math.random() * 900000));
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        await pool.query(
+            'INSERT INTO phone_verifications (phone, code, expires_at) VALUES ($1, $2, $3)',
+            [cleanPhone, code, expiresAt]
+        );
+
+        const smsResult = await sendSMS(cleanPhone, `Your Zambike verification code is ${code}. It expires in 10 minutes.`);
+        const smsFailed = smsResult.isError || (smsResult.SMSMessageData?.Recipients?.[0]?.status !== 'Success');
+
+        if (smsFailed) {
+            console.error('SMS send failed:', smsResult);
+            return res.status(500).json({ error: 'Could not send verification code. Please try again.' });
+        }
+
+        res.json({ success: true });
+    } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+app.post('/auth/verify-code', async (req, res) => {
+    try {
+        const { phone, code } = req.body;
+        if (!phone || !code) return res.status(400).json({ error: 'Phone and code required' });
+
+        const { rows } = await pool.query(
+            `SELECT * FROM phone_verifications
+             WHERE phone=$1 AND code=$2 AND verified=false AND expires_at > NOW()
+             ORDER BY created_at DESC LIMIT 1`,
+            [phone.trim(), code.trim()]
+        );
+        if (rows.length === 0)
+            return res.status(400).json({ error: 'Invalid or expired code' });
+
+        await pool.query('UPDATE phone_verifications SET verified=true WHERE id=$1', [rows[0].id]);
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/auth/register', async (req, res) => {
     try {
         const { phone, name, role, password, bike_plate, vehicle_type, license_photo, referral_code } = req.body;
@@ -189,6 +274,16 @@ app.post('/auth/register', async (req, res) => {
         const hasValidPrefix = validPrefixes.some(p => cleanPhone.startsWith(p));
         if (cleanPhone.length !== 10 || !hasValidPrefix)
             return res.status(400).json({ error: 'Phone number must be 10 digits and start with 057, 097, 077, 096, 095, or 075' });
+
+        // Require that this phone was verified via /auth/verify-code within the last hour.
+        const verifiedCheck = await pool.query(
+            `SELECT id FROM phone_verifications
+             WHERE phone=$1 AND verified=true AND created_at > NOW() - INTERVAL '1 hour'
+             ORDER BY created_at DESC LIMIT 1`,
+            [cleanPhone]
+        );
+        if (verifiedCheck.rows.length === 0)
+            return res.status(400).json({ error: 'Phone number not verified. Please verify with the code sent by SMS first.' });
 
         if (role === 'rider' && !bike_plate)
             return res.status(400).json({ error: 'Vehicle plate number required for riders' });
