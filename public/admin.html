@@ -164,6 +164,7 @@
   <a class="nav-item" href="#" onclick="showPage('riders'); return false;"><span class="nav-icon">◍</span> Riders</a>
   <a class="nav-item" href="#" onclick="showPage('active-rides'); return false;"><span class="nav-icon">◉</span> Active rides</a>
   <a class="nav-item" href="#" onclick="showPage('unpaid'); return false;"><span class="nav-icon">◎</span> Unpaid rides</a>
+  <a class="nav-item" href="#" onclick="showPage('mapcorrections'); return false;"><span class="nav-icon">🗺</span> Map corrections</a>
   <div class="nav-section">Finance</div>
   <a class="nav-item" href="#" onclick="showPage('withdrawals'); return false;"><span class="nav-icon">◆</span> Payouts</a>
   <a class="nav-item" href="#" onclick="showPage('commission'); return false;"><span class="nav-icon">◇</span> Commission owed</a>
@@ -245,6 +246,20 @@
         <tbody id="unpaidBody"><tr><td colspan="5" class="empty-row">Connect above to load rides</td></tr></tbody>
       </table>
     </div>
+  </section>
+
+  <section class="panel" id="mapcorrections">
+    <div class="panel-head">
+      <div><h3>Map corrections</h3><div class="desc">Wrong roads, better pickup points, and unnamed roads flagged by riders and passengers</div></div>
+      <button class="ghost" onclick="loadMapCorrections()">Refresh</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Category</th><th>Reported by</th><th>Location</th><th>Description</th><th>Status</th><th>Reported</th><th>Action</th></tr></thead>
+        <tbody id="mapCorrectionsBody"><tr><td colspan="7" class="empty-row">Connect above to load reports</td></tr></tbody>
+      </table>
+    </div>
+    <div class="log" id="mapCorrectionsLog" style="display:none;"></div>
   </section>
 
   <section class="panel" id="withdrawals">
@@ -405,7 +420,7 @@ async function connect(){
     document.getElementById('statPassengers').textContent = data.total_passengers;
     document.getElementById('statRides').textContent = data.total_rides;
     document.getElementById('statEarnings').textContent = 'K' + Number(data.total_earnings).toFixed(2);
-    loadRiders(); loadActiveRides(); loadWithdrawals(); loadCommissionOwed(); loadPromoCodes(); loadUnpaidRides();
+    loadRiders(); loadActiveRides(); loadWithdrawals(); loadCommissionOwed(); loadPromoCodes(); loadUnpaidRides(); loadMapCorrections();
   }catch(e){
     setConn('off', 'unreachable');
   }
@@ -543,6 +558,48 @@ async function loadUnpaidRides(){
       <td style="font-size:11px; color:var(--muted);">${new Date(r.completed_at).toLocaleString()}</td>
     </tr>
   `).join('');
+}
+
+const CATEGORY_LABELS = {
+  wrong_road: 'Wrong road',
+  better_pickup: 'Better pickup spot',
+  unnamed_road: 'Unnamed road',
+  other: 'Other',
+};
+
+async function loadMapCorrections(){
+  const body = document.getElementById('mapCorrectionsBody');
+  body.innerHTML = '<tr><td colspan="7" class="empty-row">Loading…</td></tr>';
+  const { ok, data } = await apiGet('/admin/map-corrections');
+  if(!ok){ body.innerHTML = '<tr><td colspan="7" class="empty-row">' + JSON.stringify(data) + '</td></tr>'; return; }
+  if(!data.corrections || data.corrections.length === 0){ body.innerHTML = '<tr><td colspan="7" class="empty-row">No reports yet</td></tr>'; return; }
+  body.innerHTML = data.corrections.map(c => `
+    <tr>
+      <td>${CATEGORY_LABELS[c.category] || c.category}</td>
+      <td>${c.reporter_name || 'Unknown'}<br><span style="color:var(--muted); font-size:11px;">${c.reporter_phone || ''}</span></td>
+      <td style="font-family:'JetBrains Mono'; font-size:11px;">
+        <a href="https://www.openstreetmap.org/?mlat=${c.lat}&mlon=${c.lng}#map=18/${c.lat}/${c.lng}" target="_blank" style="color:var(--accent-text);">
+          ${Number(c.lat).toFixed(5)}, ${Number(c.lng).toFixed(5)}
+        </a>
+      </td>
+      <td style="max-width:220px;">${c.description || '—'}</td>
+      <td><span class="pill ${c.status === 'applied' ? 'on' : c.status === 'dismissed' ? 'off' : 'pending'}">${c.status}</span></td>
+      <td style="font-size:11px; color:var(--muted);">${new Date(c.created_at).toLocaleString()}</td>
+      <td>
+        ${c.status === 'pending' ? `
+          <button class="mini" onclick="resolveMapCorrection(${c.id}, 'applied')">Mark applied</button>
+          <button class="mini ghost" onclick="resolveMapCorrection(${c.id}, 'reviewed')">Reviewed</button>
+          <button class="mini danger" onclick="resolveMapCorrection(${c.id}, 'dismissed')">Dismiss</button>
+        ` : ''}
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function resolveMapCorrection(id, status){
+  const { ok, data } = await apiPost('/admin/map-corrections/' + id + '/resolve', { status });
+  showLog('mapCorrectionsLog', ok, ok ? 'Marked as ' + status : data);
+  loadMapCorrections();
 }
 
 // ---------- Withdrawals ----------
