@@ -1,1 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zambike — Live trip</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --bg:#0B0F0D; --surface:#151D1A; --line:#26332D; --text:#EAEFEC; --muted:#8FA098;
+    --accent:#3DDC84; --red:#E5484D; --amber:#F2994A;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif;}
+  .header{
+    display:flex; align-items:center; gap:10px; padding:16px 20px;
+    border-bottom:1px solid var(--line);
+  }
+  .mark{width:30px; height:30px; border-radius:8px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-family:'Space Grotesk'; font-weight:700; color:#06140C; font-size:14px;}
+  .header h1{font-family:'Space Grotesk'; font-size:16px; margin:0;}
+  .header span{color:var(--muted); font-size:11px;}
+  #map{ height:50vh; width:100%; background:#151D1A; }
+  .panel{ padding:20px; max-width:520px; margin:0 auto; }
+  .status-badge{
+    display:inline-block; background:rgba(61,220,132,0.1); color:var(--accent);
+    border:1px solid rgba(61,220,132,0.35); padding:6px 14px; border-radius:20px;
+    font-size:13px; font-weight:700; margin-bottom:16px;
+  }
+  .status-badge.ended{ background:rgba(139,147,161,0.1); color:var(--muted); border-color:var(--line); }
+  .row{ display:flex; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--line); }
+  .row:last-child{ border-bottom:none; }
+  .row .l{ color:var(--muted); font-size:13px; }
+  .row .v{ font-weight:600; font-size:13px; text-align:right; }
+  .note{ color:var(--muted); font-size:12px; text-align:center; margin-top:20px; line-height:1.5; }
+  .error{ text-align:center; padding:60px 20px; color:var(--muted); }
+  .loading{ text-align:center; padding:60px 20px; color:var(--muted); }
+</style>
+</head>
+<body>
 
+<div class="header">
+  <div class="mark">Z</div>
+  <div><h1>Zambike</h1><span>Live trip tracking</span></div>
+</div>
+
+<div id="map"></div>
+
+<div class="panel" id="panel">
+  <div class="loading">Loading trip…</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const params = new URLSearchParams(window.location.search);
+const token = params.get('token');
+const panel = document.getElementById('panel');
+
+let map = null;
+let riderMarker = null;
+let pickupMarker = null;
+let destMarker = null;
+
+function makeDot(color) {
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:18px;height:18px;border-radius:50%;background:' + color + ';border:3px solid #06140C;box-shadow:0 2px 6px rgba(0,0,0,0.4);"></div>',
+    iconSize: [18, 18],
+  });
+}
+
+function ensureMap(centerLat, centerLng) {
+  if (map) return;
+  map = L.map('map', { zoomControl: true, attributionControl: false }).setView([centerLat, centerLng], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+}
+
+function statusLabel(status) {
+  return {
+    requested: 'Looking for a rider',
+    accepted: 'Rider is on the way',
+    arriving: 'Rider is arriving',
+    in_progress: 'Ride in progress',
+    completed: 'Trip completed',
+    cancelled: 'Trip cancelled',
+  }[status] || status;
+}
+
+async function refresh() {
+  if (!token) {
+    panel.innerHTML = '<div class="error">No trip link provided.</div>';
+    return;
+  }
+  try {
+    const res = await fetch('/track/' + token);
+    const data = await res.json();
+    if (!res.ok) {
+      panel.innerHTML = '<div class="error">' + (data.error || 'Trip not found') + '</div>';
+      return;
+    }
+    const ride = data.ride;
+    const ended = ride.status === 'completed' || ride.status === 'cancelled';
+
+    ensureMap(Number(ride.pickup_lat), Number(ride.pickup_lng));
+
+    if (!pickupMarker) {
+      pickupMarker = L.marker([ride.pickup_lat, ride.pickup_lng], { icon: makeDot('#3DDC84') }).addTo(map);
+    }
+    if (ride.dest_lat && ride.dest_lng && !destMarker) {
+      destMarker = L.marker([ride.dest_lat, ride.dest_lng], { icon: makeDot('#E5484D') }).addTo(map);
+    }
+    if (ride.rider_lat && ride.rider_lng) {
+      if (!riderMarker) {
+        riderMarker = L.marker([ride.rider_lat, ride.rider_lng], { icon: makeDot('#F2994A') }).addTo(map);
+      } else {
+        riderMarker.setLatLng([ride.rider_lat, ride.rider_lng]);
+      }
+      if (!ended) map.panTo([ride.rider_lat, ride.rider_lng]);
+    }
+
+    panel.innerHTML = `
+      <div class="status-badge ${ended ? 'ended' : ''}">${statusLabel(ride.status)}</div>
+      <div class="row"><div class="l">Passenger</div><div class="v">${ride.passenger_first_name}</div></div>
+      ${ride.rider_name ? `<div class="row"><div class="l">Rider</div><div class="v">${ride.rider_name} ${ride.rider_rating ? '★' + Number(ride.rider_rating).toFixed(1) : ''}</div></div>` : ''}
+      ${ride.rider_bike_plate ? `<div class="row"><div class="l">Vehicle plate</div><div class="v">${ride.rider_bike_plate}</div></div>` : ''}
+      <div class="row"><div class="l">Pickup</div><div class="v">${ride.pickup_address || '—'}</div></div>
+      <div class="row"><div class="l">Destination</div><div class="v">${ride.dest_address || '—'}</div></div>
+      <div class="note">${ended ? 'This trip has ended. This page will no longer update.' : 'This page updates automatically every few seconds. Shared for safety — no login required.'}</div>
+    `;
+
+    if (!ended) setTimeout(refresh, 5000);
+  } catch (e) {
+    panel.innerHTML = '<div class="error">Could not load trip. Check your connection.</div>';
+    setTimeout(refresh, 8000);
+  }
+}
+
+refresh();
+</script>
+</body>
+</html>
