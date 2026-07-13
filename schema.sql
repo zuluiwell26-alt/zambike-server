@@ -81,6 +81,7 @@ ALTER TABLE rides ADD COLUMN IF NOT EXISTS promo_code TEXT;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS discount_amount NUMERIC DEFAULT 0;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS original_fare NUMERIC;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS used_commission_free BOOLEAN DEFAULT FALSE;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS share_token TEXT UNIQUE;
 
 ALTER TABLE rides DROP CONSTRAINT IF EXISTS rides_payment_method_check;
 ALTER TABLE rides ADD CONSTRAINT rides_payment_method_check CHECK (payment_method IN ('airtel', 'mtn', 'cash'));
@@ -189,4 +190,18 @@ CREATE TABLE IF NOT EXISTS admins (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Community-submitted map corrections (wrong roads, better pickup points, unnamed roads, etc.)
+CREATE TABLE IF NOT EXISTS map_corrections (
+    id SERIAL PRIMARY KEY,
+    reporter_id INTEGER REFERENCES users(id),
+    lat NUMERIC(10,7) NOT NULL,
+    lng NUMERIC(10,7) NOT NULL,
+    category TEXT NOT NULL CHECK (category IN ('wrong_road', 'better_pickup', 'unnamed_road', 'other')),
+    description TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'reviewed', 'applied', 'dismissed')),
+    created_at TIMESTAMP DEFAULT NOW(),
+    reviewed_at TIMESTAMP,
+    admin_note TEXT
 );
