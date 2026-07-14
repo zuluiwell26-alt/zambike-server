@@ -216,3 +216,14 @@ CREATE TABLE IF NOT EXISTS phone_verifications (
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Passengers' favorite drivers, for requesting a specific rider again
+CREATE TABLE IF NOT EXISTS favorite_drivers (
+    id SERIAL PRIMARY KEY,
+    passenger_id INTEGER REFERENCES users(id),
+    rider_id INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(passenger_id, rider_id)
+);
+
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS preferred_rider_id INTEGER REFERENCES users(id);
