@@ -553,7 +553,10 @@ app.get('/rider/nearby-requests', authMiddleware, async (req, res) => {
         if (req.user.role !== 'rider') return res.status(403).json({ error: 'Riders only' });
         const { lat, lng } = req.query;
 
-        const riderInfo = await pool.query('SELECT vehicle_type FROM users WHERE id=$1', [req.user.id]);
+        const riderInfo = await pool.query('SELECT vehicle_type, is_approved FROM users WHERE id=$1', [req.user.id]);
+        if (!riderInfo.rows[0]?.is_approved) {
+            return res.json({ rides: [] });
+        }
         const myVehicleType = riderInfo.rows[0]?.vehicle_type || 'bike';
 
         const { rows } = await pool.query(
