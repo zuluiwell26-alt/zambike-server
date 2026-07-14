@@ -567,11 +567,12 @@ app.get('/rider/nearby-requests', authMiddleware, async (req, res) => {
                 sin(radians($1)) * sin(radians(r.pickup_lat)))) AS calc_distance_km
                FROM rides r JOIN users u ON r.passenger_id = u.id
                WHERE r.status = 'requested' AND r.vehicle_type = $3
+               AND (r.preferred_rider_id IS NULL OR r.preferred_rider_id = $4)
                AND (r.scheduled_time IS NULL OR r.scheduled_time <= NOW() + INTERVAL '15 minutes')
              ) sub
              WHERE calc_distance_km < 15
              ORDER BY requested_at ASC`,
-            [lat, lng, myVehicleType]
+            [lat, lng, myVehicleType, req.user.id]
         );
         res.json({ rides: rows });
     } catch(e) { res.status(500).json({ error: e.message }); }
@@ -766,7 +767,7 @@ app.get('/rider/withdrawal-history', authMiddleware, async (req, res) => {
 app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
-        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time, promo_code, stops } = req.body;
+        const { pickup_lat, pickup_lng, pickup_address, dest_lat, dest_lng, dest_address, payment_method, vehicle_type, scheduled_time, promo_code, stops, preferred_rider_id } = req.body;
 
         const finalPaymentMethod = payment_method === 'cash' ? 'cash' : 'cash';
 
@@ -777,6 +778,18 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
             { lat: dest_lat, lng: dest_lng }
         );
         const { fare: baseFare, zambikeCut: baseCut } = await calculateFare(distanceKm, vehicle_type || 'bike');
+
+        let validPreferredRiderId = null;
+        if (preferred_rider_id) {
+            const preferredCheck = await pool.query(
+                'SELECT id FROM users WHERE id=$1 AND role=$2 AND is_online=true AND is_approved=true AND is_active=true AND vehicle_type=$3',
+                [preferred_rider_id, 'rider', vehicle_type || 'bike']
+            );
+            if (preferredCheck.rows.length === 0) {
+                return res.status(400).json({ error: 'This driver is not currently available. Try requesting a normal ride instead.' });
+            }
+            validPreferredRiderId = preferred_rider_id;
+        }
 
         let finalFare = baseFare;
         let discountAmount = 0;
@@ -834,12 +847,12 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
         const { rows } = await pool.query(
             `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distance_km, fare, zambike_cut,
-             rider_earnings, payment_method, vehicle_type, scheduled_time, promo_code, discount_amount, original_fare, share_token)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+             rider_earnings, payment_method, vehicle_type, scheduled_time, promo_code, discount_amount, original_fare, share_token, preferred_rider_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
             [req.user.id, pickup_lat, pickup_lng, pickup_address,
              dest_lat, dest_lng, dest_address, distanceKm.toFixed(2),
              finalFare, finalZambikeCut, finalRiderEarnings, finalPaymentMethod, vehicle_type || 'bike',
-             scheduled_time || null, appliedLabel, discountAmount, baseFare, shareToken]
+             scheduled_time || null, appliedLabel, discountAmount, baseFare, shareToken, validPreferredRiderId]
         );
 
         const newRide = rows[0];
@@ -860,24 +873,74 @@ app.post('/passenger/request-ride', authMiddleware, async (req, res) => {
 
         const isImmediate = !scheduled_time || new Date(scheduled_time) <= new Date(Date.now() + 15 * 60000);
         if (isImmediate) {
-            const nearbyRiders = await pool.query(
-                `SELECT push_token FROM users u
-                 JOIN rider_locations rl ON u.id = rl.rider_id
-                 WHERE u.role='rider' AND u.is_online=true AND u.is_approved=true AND u.is_active=true
-                 AND u.vehicle_type=$3
-                 AND u.push_token IS NOT NULL
-                 AND (6371 * acos(cos(radians($1)) * cos(radians(rl.latitude)) *
-                      cos(radians(rl.longitude) - radians($2)) +
-                      sin(radians($1)) * sin(radians(rl.latitude)))) < 15`,
-                [pickup_lat, pickup_lng, vehicle_type || 'bike']
-            );
-            nearbyRiders.rows.forEach(r => {
-                sendPushNotification(r.push_token, 'New ride nearby!', `Fare: K${finalFare}`);
-            });
+            if (validPreferredRiderId) {
+                const preferredRider = await pool.query('SELECT push_token, name FROM users WHERE id=$1', [validPreferredRiderId]);
+                sendPushNotification(
+                    preferredRider.rows[0]?.push_token,
+                    'A passenger requested you directly!',
+                    `Fare: K${finalFare}`
+                );
+            } else {
+                const nearbyRiders = await pool.query(
+                    `SELECT push_token FROM users u
+                     JOIN rider_locations rl ON u.id = rl.rider_id
+                     WHERE u.role='rider' AND u.is_online=true AND u.is_approved=true AND u.is_active=true
+                     AND u.vehicle_type=$3
+                     AND u.push_token IS NOT NULL
+                     AND (6371 * acos(cos(radians($1)) * cos(radians(rl.latitude)) *
+                          cos(radians(rl.longitude) - radians($2)) +
+                          sin(radians($1)) * sin(radians(rl.latitude)))) < 15`,
+                    [pickup_lat, pickup_lng, vehicle_type || 'bike']
+                );
+                nearbyRiders.rows.forEach(r => {
+                    sendPushNotification(r.push_token, 'New ride nearby!', `Fare: K${finalFare}`);
+                });
+            }
         }
 
         res.json({ success: true, ride: newRide, fare: finalFare, originalFare: baseFare, discountAmount, appliedLabel, distanceKm: distanceKm.toFixed(2) });
     } catch(e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+app.post('/passenger/favorites/:riderId', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
+        const riderCheck = await pool.query('SELECT id FROM users WHERE id=$1 AND role=$2', [req.params.riderId, 'rider']);
+        if (riderCheck.rows.length === 0) return res.status(404).json({ error: 'Rider not found' });
+
+        await pool.query(
+            'INSERT INTO favorite_drivers (passenger_id, rider_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+            [req.user.id, req.params.riderId]
+        );
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/passenger/favorites/:riderId', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
+        await pool.query(
+            'DELETE FROM favorite_drivers WHERE passenger_id=$1 AND rider_id=$2',
+            [req.user.id, req.params.riderId]
+        );
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/passenger/favorites', authMiddleware, async (req, res) => {
+    try {
+        if (req.user.role !== 'passenger') return res.status(403).json({ error: 'Passengers only' });
+        const { rows } = await pool.query(
+            `SELECT u.id, u.name, u.rating, u.total_rides, u.vehicle_type, u.bike_plate,
+             u.is_online, u.is_approved, u.is_active
+             FROM favorite_drivers f
+             JOIN users u ON f.rider_id = u.id
+             WHERE f.passenger_id = $1
+             ORDER BY f.created_at DESC`,
+            [req.user.id]
+        );
+        res.json({ favorites: rows });
+    } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/passenger/nearby-riders', authMiddleware, async (req, res) => {
